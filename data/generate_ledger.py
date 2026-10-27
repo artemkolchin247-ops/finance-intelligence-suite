@@ -550,6 +550,14 @@ def main() -> None:
         fm.assign(month=fm["month"]).round({c: 2 for c in fm.select_dtypes("number").columns}).to_excel(xw, sheet_name="fact_monthly", index=False)
         build_balance_1c(fm, journal, rng).to_excel(xw, sheet_name="balance_1c", index=False)
         build_payment_plan(rng).to_excel(xw, sheet_name="payment_plan", index=False)
+        pd.DataFrame(columns=["Лист", "Строка", "Месяц", "Значение"]).to_excel(xw, sheet_name="plan_cells", index=False)
+        pd.DataFrame(columns=["Маркетплейс", "Фактор", "С месяца", "По месяц", "Эффект, % к выручке", "Комментарий"]).to_excel(
+            xw, sheet_name="plan_factors", index=False)
+        pd.DataFrame([["Пример: новое направление", False, "Сайт/другое", pd.Timestamp("2027-01-01"), 3, 1_500_000, 55, 8, 250_000,
+                       "ФОТ Маркетинг", 40_000, None, "Заполните и включите, чтобы увидеть эффект на ДДС"]],
+                     columns=["Название", "Активна", "Маркетплейс", "Старт (месяц)", "Месяцев разгона", "Выручка в зрелом состоянии, ₽/мес",
+                              "Закупки, % выручки", "Реклама, % выручки", "ФОТ команды, ₽/мес", "Статья ФОТ", "Прочие расходы, ₽/мес",
+                              "Окончание (месяц)", "Комментарий"]).to_excel(xw, sheet_name="plan_initiatives", index=False)
         pd.DataFrame({"key": ["as_of"], "value": [AS_OF.strftime("%Y-%m-%d")]}).to_excel(xw, sheet_name="meta", index=False)
     neg = {a: round(b) for a, b in balances.items() if b < 0}
     print(f"{OUT_PATH.name}: journal={len(journal)} fact_monthly={len(fm)}; cash={sum(balances.values()):,.0f}; negative={neg}")

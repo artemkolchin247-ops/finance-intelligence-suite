@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import pandas as pd
 import streamlit as st
 
-from core import cashflow, rnp_calc
+from core import cashflow, planning, rnp_calc
 from core.data_repo import ExcelRepository
 from core.ledger import ExcelLedgerRepository, prepare_journal
 
@@ -90,25 +90,28 @@ def load_payment_plan() -> pd.DataFrame:
 
 
 def scenario() -> cashflow.Assumptions:
-    """Forecast assumptions of the current session; defaults are derived from the history."""
-    fin = get_finance()
-    base = cashflow.default_assumptions(fin.journal, fin.as_of)
-    ss = st.session_state
-    return cashflow.Assumptions(
-        growth_monthly=ss.get("sc_growth", base.growth_monthly * 100) / 100, seasonality=ss.get("sc_season", True),
-        purchase_scale=ss.get("sc_purchase", 100) / 100, payroll_index=ss.get("sc_payroll", 0.0) / 100,
-        dividends_month=ss.get("sc_div", base.dividends_month / 1000) * 1000, buffer=ss.get("sc_buffer", 2000) * 1000.0)
+    """Forecast assumptions of the current session (see ui.scenario)."""
+    from ui.scenario import scenario_for
+    return scenario_for(get_finance())
+
+
+def get_plan() -> planning.PlanInputs:
+    """The plan in use: the session's edited one if present, otherwise the saved one."""
+    live = st.session_state.get("plan_live")
+    if live is not None:
+        return live
+    saved = st.session_state.get("plan_saved")
+    if saved is None:
+        saved = planning.plan_from_sheets(get_ledger_repo().get_plan_sheets())
+        st.session_state["plan_saved"] = saved
+    return saved
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_schedule(growth: float, season: bool, purchase: float, payroll: float, dividends: float, plan: pd.DataFrame,
-                    version: int, _fin: FinanceData):
-    fin = _fin
-    a = cashflow.Assumptions(growth, season, purchase, payroll, dividends)
-    return cashflow.build_schedule(fin.journal, fin.balance_1c, plan, fin.as_of, a)
+def cached_schedule(assumptions: cashflow.Assumptions, payment_plan: pd.DataFrame, version: int, plan_key: tuple, _plan, _fin: FinanceData):
+    return cashflow.build_schedule(_fin.journal, _fin.balance_1c, payment_plan, _fin.as_of, assumptions, plan=_plan)
 
 
 def get_schedule() -> pd.DataFrame:
-    a = scenario()
-    return cached_schedule(a.growth_monthly, a.seasonality, a.purchase_scale, a.payroll_index, a.dividends_month, load_payment_plan(),
-                           finance_key(), get_finance())
+    plan = get_plan()
+    return cached_schedule(scenario(), load_payment_plan(), finance_key(), plan.key(), plan, get_finance())

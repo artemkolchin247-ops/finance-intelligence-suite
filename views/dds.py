@@ -11,6 +11,7 @@ from core.formatting import format_value
 from ui import finance_charts as fc
 from ui.components import Kpi, chart_card, kpi_row, page_header, section_title
 from ui.export import to_excel
+from ui.scenario import scenario_controls
 from ui.state import get_schedule, get_finance, scenario
 from ui.statement_html import Col, TRow, render_statement
 
@@ -23,28 +24,11 @@ except (FileNotFoundError, ValueError, OSError) as exc:
 
 as_of = fin.as_of
 cur = as_of.to_period("M").to_timestamp()
-base = C.default_assumptions(fin.journal, as_of)
-ss = st.session_state
-ss.setdefault("sc_growth", round(base.growth_monthly * 100, 1))
-ss.setdefault("sc_season", True)
-ss.setdefault("sc_purchase", 100)
-ss.setdefault("sc_payroll", 0.0)
-ss.setdefault("sc_div", int(base.dividends_month / 1000))
-ss.setdefault("sc_buffer", 2000)
-
 with st.expander("Допущения прогноза (сценарий)", expanded=False):
-    a1, a2, a3 = st.columns(3)
-    a1.number_input("Рост поступлений от МП, % в месяц", -10.0, 15.0, step=0.5, key="sc_growth",
-                    help="По умолчанию — тренд последних 6 закрытых месяцев (не выше 2% в месяц)")
-    a1.checkbox("Учитывать сезонность", key="sc_season")
-    a2.number_input("Закупки и связанные расходы, % от текущих пропорций", 50, 200, step=5, key="sc_purchase")
-    a2.number_input("Индексация ФОТ, %", 0.0, 30.0, step=1.0, key="sc_payroll")
-    a3.number_input("Дивиденды, тыс. ₽ в месяц", 0, 20000, step=100, key="sc_div")
-    a3.number_input("Минимальный остаток, тыс. ₽", 0, 50000, step=250, key="sc_buffer",
-                    help="Остаток ниже этого уровня подсвечивается как риск кассового разрыва")
-    st.caption("Прогноз строится от средних пропорций последних месяцев: выплаты маркетплейсов растут по заданному тренду, "
-               "закупки, реклама и НДС следуют за поступлениями, ФОТ и постоянные расходы — средние за 3 месяца, налоги и "
-               "кредит — по графику. Известные платежи из «Платёжного календаря» заменяют прогноз по своим статьям.")
+    scenario_controls("dds", fin)
+    st.caption("Расходы прогнозируются как среднее за 3 последних закрытых месяца по каждой статье; выплаты маркетплейсов растут по заданному "
+               "тренду. Корректировки расходов, факторы, ручная замена цифр и новые направления вводятся на странице «Планирование». "
+               "Известные платежи из «Платёжного календаря» заменяют прогноз по своим статьям.")
 
 assump = scenario()
 schedule = get_schedule()

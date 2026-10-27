@@ -206,7 +206,7 @@ def test_assumptions_move_the_forecast(ctx):
     assert receipts(C.Assumptions(**{**base.__dict__, "growth_monthly": 0.0})) < receipts(C.Assumptions(**{**base.__dict__, "growth_monthly": 0.04}))
     s0 = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], C.Assumptions(**{**base.__dict__, "dividends_month": 0.0}))
     s1 = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], C.Assumptions(**{**base.__dict__, "dividends_month": 1e6}))
-    assert s1[s1["article"] == "Выплата дивидендов"]["amount"].sum() - s0[s0["article"] == "Выплата дивидендов"]["amount"].sum() == pytest.approx(12e6)
+    assert s1[s1["article"] == "Выплата дивидендов"]["amount"].sum() - s0[s0["article"] == "Выплата дивидендов"]["amount"].sum() == pytest.approx(11.8e6, rel=0.01)  # the current month counts only its remaining 80%
 
 
 def test_statement_plan_months_equal_schedule_totals(ctx, schedule):

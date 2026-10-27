@@ -63,6 +63,9 @@ class Assumptions:
     payroll_index: float = 0.0  # indexation of payroll
     dividends_month: float = 0.0  # monthly dividends
     buffer: float = 2_000_000.0  # minimum free balance
+    receipts_scale: float = 1.0  # scenario multiplier of the receipts base
+    initiative_weight: float = 1.0  # scenario share of initiative revenue taken into account
+    scale_variable: bool = False  # scale purchases, advertising and creators together with receipts
 
 
 # --------------------------------------------------------------------------- actuals
@@ -145,12 +148,16 @@ def _day_profile(ops: pd.DataFrame, col: str) -> list[tuple[int, float]]:
 
 
 def build_schedule(journal: pd.DataFrame, balance_1c: pd.DataFrame, payment_plan: pd.DataFrame, as_of: pd.Timestamp,
-                   assumptions: Assumptions, horizon_months: int = 12) -> pd.DataFrame:
+                   assumptions: Assumptions, horizon_months: int = 12, plan=None) -> pd.DataFrame:
     """Dated future operations: forecast rules + manual payment plan + planned journal rows.
 
-    Columns: date, article, group, activity, direction, amount (positive), entity, account, priority, status,
-    source, counterparty, comment.
+    Receipts and expenses come from the planning layers (core.planning): averages of the last 3 months, the user's
+    replacements, factors and initiatives. Columns: date, article, group, activity, direction, amount (positive),
+    entity, account, priority, status, source, counterparty, comment.
     """
+    from core import planning  # imported here: planning builds on this module
+
+    layers = planning.build_layers(journal, as_of, assumptions, plan, horizon_months)
     arts = journal.drop_duplicates("article").set_index("article")["dds_group"].to_dict()
     first = (as_of + pd.Timedelta(days=1))
     months = [as_of.to_period("M").to_timestamp() + pd.DateOffset(months=i) for i in range(horizon_months)]
@@ -195,54 +202,41 @@ def build_schedule(journal: pd.DataFrame, balance_1c: pd.DataFrame, payment_plan
         add(r.dds_date, r.article, amt, r.cabinet or "ООО Вуки", "Журнал (плановый)", "Запланирован", comment=r.comment,
             direction="out" if r.expense > 0 else "in")
         known_add(r.article, r.dds_date, amt)
-    plan = payment_plan[~payment_plan["Статус"].isin(["Оплачен"])].dropna(subset=["Дата", "Сумма"])
-    for r in plan.itertuples(index=False):
+    manual = payment_plan[~payment_plan["Статус"].isin(["Оплачен"])].dropna(subset=["Дата", "Сумма"])
+    for r in manual.itertuples(index=False):
         d = first if (r.Статус == "Просрочен" or r.Дата < first) else r.Дата
         add(d, r[2], r.Сумма, r.Юрлицо or "ООО Вуки", "План платежей", r.Статус, r.Контрагент, f"{r.ID}: {r.Комментарий}".strip(": "),
             priority=r.Приоритет or None)
         known_add(r[2], d, r.Сумма)
 
-    # ---- receipts of marketplaces
+    # ---- receipts by stream (marketplaces and others): weekly payouts of the final monthly amount
     rec_hist = receipts_series(journal, as_of)
     total_hist = rec_hist.sum(axis=1)
-    season = seasonal_index(total_hist) if assumptions.seasonality else pd.Series(1.0, index=range(1, 13))
-    base3 = total_hist.reindex(recent3)
-    deseason = float(np.nan_to_num(np.mean([base3[m] / season[m.month] for m in recent3]), nan=0.0))
-    mp_share = {mp: float(rec_hist[art].reindex(recent).sum() / max(total_hist.reindex(recent).sum(), 1)) for art, mp in RECEIPT_ARTICLES.items()}
-    last_closed = recent[-1]
-    receipts_fc: dict[pd.Timestamp, float] = {}
-    for m in months:
-        h = (m.year - last_closed.year) * 12 + m.month - last_closed.month
-        receipts_fc[m] = deseason * (1 + assumptions.growth_monthly) ** h * season[m.month]
-
-    def receipts_of(m: pd.Timestamp) -> float:
-        """Receipts of a month for ratio drivers: actual part to date + forecast of the remainder."""
-        return receipts_fc.get(m, 0.0)
-
+    rec_recent = max(total_hist.reindex(recent).sum(), 1.0)
+    rec_final = layers.receipts["final"]
+    receipts_fc = {m: float(rec_final.loc[m].sum()) for m in months}
     weekdays = {"WB": (0, 1), "Ozon": (2,)}
-    for art, mp in RECEIPT_ARTICLES.items():
+    for stream, art in planning.STREAM_ARTICLE.items():
         for m in months:
-            amount_m = receipts_fc[m] * mp_share[mp]
+            amount_m = float(rec_final.loc[m, stream])
+            planned = bool(layers.receipts["initiative"].loc[m, stream] > 0 or not np.isnan(layers.receipts["override"].loc[m, stream])
+                           or layers.receipts["factor_pct"].loc[m, stream] != 0)
             if m == months[0]:  # the current month: what is still to come
                 got = journal[(journal["article"] == art) & journal["dds_date"].between(m, as_of)]["income"].sum()
                 amount_m = max(amount_m - got, 0.0)
-            days = [d for d in pd.date_range(max(m, first), m + pd.offsets.MonthEnd(0)) if d.weekday() in weekdays[mp]]
+            days = ([d for d in pd.date_range(max(m, first), m + pd.offsets.MonthEnd(0)) if d.weekday() in weekdays[stream]]
+                    if stream in weekdays else [d for d in pd.date_range(max(m, first), m + pd.offsets.MonthEnd(0)) if d.day == 10 or d.day == 25])
             if not days or amount_m <= 0:
                 continue
-            w = np.full(len(days), 1.0 / len(days))
             for entity, share in entity_split(art):
-                for d, wi in zip(days, w):
-                    add(d, art, amount_m * wi * share, entity, "Прогноз", comment="Ожидаемая выплата маркетплейса")
+                for d in days:
+                    add(d, art, amount_m / len(days) * share, entity, "Планирование" if planned else "Прогноз",
+                        comment="Ожидаемое поступление" if stream not in weekdays else "Ожидаемая выплата маркетплейса", direction="in")
 
-    # ---- variable costs (ratio to receipts), fixed items (recent average), payroll, taxes, credit, dividends
-    rec_recent = max(total_hist.reindex(recent).sum(), 1.0)
-
+    # ---- expenses: planning layers (3-month averages, replacements, initiatives)
     def month_amounts(article: str, ms) -> float:
         h = in_months(hist[hist["article"] == article], ms)
         return float(h["expense"].sum() - h["income"].sum())
-
-    handled = {*RECEIPT_ARTICLES, *VARIABLE, *PAYROLL, PAYROLL_TAX, VAT, INCOME_TAX, CREDIT_PRINCIPAL, CREDIT_INTEREST, CREDIT_IN,
-               *DIVIDENDS, DEPOSIT_INCOME}
 
     def spread(article: str, month: pd.Timestamp, amount: float, source="Прогноз", note=""):
         h = in_months(hist[hist["article"] == article], recent)
@@ -260,30 +254,15 @@ def build_schedule(journal: pd.DataFrame, balance_1c: pd.DataFrame, payment_plan
             for entity, share in entity_split(article):
                 add(d, article, remaining * wt * share, entity, source, comment=note, direction=direction)
 
+    exp = layers.expenses
     for m in months:
-        part_of_month = 1.0
-        if m == months[0]:
-            part_of_month = max((m + pd.offsets.MonthEnd(0) - as_of).days / m.days_in_month, 0.0)
-        for art in VARIABLE:
-            ratio = month_amounts(art, recent) / rec_recent
-            scale = assumptions.purchase_scale
-            spread(art, m, ratio * receipts_of(m) * scale * (part_of_month if m == months[0] else 1.0))
-        for art in PAYROLL:
-            amt = month_amounts(art, recent3) / 3 * (1 + assumptions.payroll_index)
-            spread(art, m, amt * (part_of_month if m == months[0] else 1.0))
-        payroll_total = sum(month_amounts(a, recent3) for a in PAYROLL) / 3 * (1 + assumptions.payroll_index)
-        pt_ratio = month_amounts(PAYROLL_TAX, recent) / max(sum(month_amounts(a, recent) for a in PAYROLL), 1.0)
-        spread(PAYROLL_TAX, m, payroll_total * pt_ratio * (part_of_month if m == months[0] else 1.0))
-        vat_ratio = month_amounts(VAT, recent) / rec_recent
-        spread(VAT, m, vat_ratio * receipts_of(m))
-        for art in sorted(set(hist["article"]) - handled):
-            amt = month_amounts(art, recent3) / 3
-            if abs(amt) > 0:
-                spread(art, m, abs(amt) * (part_of_month if m == months[0] else 1.0))
-        if assumptions.dividends_month > 0:
-            d = business_day(m + pd.Timedelta(days=14))
-            if d >= first:
-                add(d, "Выплата дивидендов", assumptions.dividends_month, "ООО Вуки", "Прогноз", comment="Дивиденды по допущению")
+        part_of_month = max((m + pd.offsets.MonthEnd(0) - as_of).days / m.days_in_month, 0.0) if m == months[0] else 1.0
+        for art in exp["final"].index:
+            amount = float(exp["final"].loc[art, m])
+            if amount <= 0:
+                continue
+            changed = (not np.isnan(exp["override"].loc[art, m])) or exp["initiative"].loc[art, m] > 0
+            spread(art, m, amount * part_of_month, "Планирование" if changed else "Прогноз")
 
     # income tax: paid on the 28th of the month after each quarter; accrual ratio from recent P&L of the journal
     tax_hist = journal[(journal["article"] == INCOME_TAX) & journal["pl_date"].between(recent[0], recent[-1] + pd.offsets.MonthEnd(0))]
@@ -293,6 +272,8 @@ def build_schedule(journal: pd.DataFrame, balance_1c: pd.DataFrame, payment_plan
         q_months = [q_start + pd.DateOffset(months=i) for i in range(3)]
         q_receipts = sum(float(total_hist.get(qm, 0.0)) if qm in total_hist.index else receipts_fc.get(qm, 0.0) for qm in q_months)
         amount = tax_ratio * q_receipts - known.get((INCOME_TAX, pay_month), 0.0)
+        if plan is not None and (ov := plan.override(planning.SHEET_EXP, INCOME_TAX, pay_month)) is not None:
+            amount = ov - known.get((INCOME_TAX, pay_month), 0.0)
         for entity, share in (("ООО Вуки", 0.88), ("ИП Петрова", 0.12)):
             add(pay_month + pd.Timedelta(days=27), INCOME_TAX, amount * share, entity, "Прогноз",
                 comment=f"УСН за {((q_start.month - 1) // 3) + 1} квартал {q_start.year}")

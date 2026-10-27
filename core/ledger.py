@@ -65,6 +65,13 @@ class LedgerRepository(ABC):
     def get_as_of(self) -> pd.Timestamp: ...
 
     @abstractmethod
+    def get_plan_sheets(self) -> dict[str, pd.DataFrame]:
+        """Stored forecast plan: plan_cells, plan_factors, plan_initiatives (empty frames when nothing was saved)."""
+
+    @abstractmethod
+    def save_plan_sheets(self, sheets: dict[str, pd.DataFrame]) -> None: ...
+
+    @abstractmethod
     def save_ledger(self, journal: pd.DataFrame, articles: pd.DataFrame, accounts: pd.DataFrame, as_of: pd.Timestamp) -> None:
         """Replace the journal (internal column names), the article and account references and the as-of date."""
 
@@ -126,6 +133,24 @@ class ExcelLedgerRepository(LedgerRepository):
     def get_as_of(self) -> pd.Timestamp:
         meta = self._sheet("meta")
         return pd.Timestamp(meta.loc[meta["key"] == "as_of", "value"].iloc[0])
+
+    def get_plan_sheets(self) -> dict[str, pd.DataFrame]:
+        out = {}
+        for name in ("plan_cells", "plan_factors", "plan_initiatives"):
+            try:
+                out[name] = self._sheet(name)
+            except ValueError:
+                out[name] = pd.DataFrame()
+        return out
+
+    def save_plan_sheets(self, sheets: dict[str, pd.DataFrame]) -> None:
+        try:
+            with pd.ExcelWriter(self._path, engine="openpyxl", mode="a", if_sheet_exists="replace") as xw:
+                for name, df in sheets.items():
+                    df.to_excel(xw, sheet_name=name, index=False)
+        except OSError as exc:
+            raise OSError(f"Cannot write the plan to {self._path.name}: {exc}") from exc
+        self._sheets = None
 
     def save_ledger(self, journal: pd.DataFrame, articles: pd.DataFrame, accounts: pd.DataFrame, as_of: pd.Timestamp) -> None:
         inv_j = {v: k for k, v in JOURNAL_RENAME.items()}

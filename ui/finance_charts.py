@@ -106,3 +106,13 @@ def equity_chart(labels: Sequence[str], equity: Sequence[float], debt: Sequence[
     fig.add_scatter(x=list(labels), y=[v / 1e6 for v in debt], name="Кредиты и займы", line=dict(color=BAD, width=2.2, dash="dash"), mode="lines")
     fig.update_layout(title="Капитал и долг, млн ₽")
     return _cat(fig, 360)
+
+
+def plan_vs_base(labels: Sequence[str], base_close: Sequence[float], plan_close: Sequence[float], buffer: float) -> go.Figure:
+    fig = go.Figure()
+    fig.add_scatter(x=list(labels), y=[v / 1e6 for v in base_close], name="Базовый прогноз", mode="lines+markers",
+                    line=dict(color="#9DB3F0", width=2.4, dash="dash"))
+    fig.add_scatter(x=list(labels), y=[v / 1e6 for v in plan_close], name="С учётом плана", mode="lines+markers", line=dict(color=NEUTRAL, width=2.8))
+    fig.add_hline(y=buffer / 1e6, line=dict(color=BAD, dash="dash", width=1.2), annotation_text="минимальный остаток")
+    fig.update_layout(title="Остаток денег на конец месяца: база и план, млн ₽")
+    return _cat(fig, 360)
