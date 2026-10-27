@@ -6,7 +6,6 @@ from html import escape
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from core import insights as I
 from core import rnp_calc as R
@@ -60,9 +59,11 @@ if goto:
 all_models = sorted(ds.dim["model"].unique(), key=str.lower)
 with st.container(border=True):
     c1, c2, c3 = st.columns([1, 1.5, 1])
-    mp = c1.segmented_control("Маркетплейс", MARKETPLACES, default="WB", key="rnp_mp") or "WB"
-    default_period = (max(DEFAULT_START, data_min).date(), min(DEFAULT_END, data_max).date())
-    period = c2.date_input("Период", value=default_period, min_value=data_min.date(), max_value=data_max.date(),
+    # defaults live in session state so the "open from hypotheses" jump can override them without widget warnings
+    st.session_state.setdefault("rnp_mp", "WB")
+    st.session_state.setdefault("rnp_period", (max(DEFAULT_START, data_min).date(), min(DEFAULT_END, data_max).date()))
+    mp = c1.segmented_control("Маркетплейс", MARKETPLACES, key="rnp_mp") or "WB"
+    period = c2.date_input("Период", min_value=data_min.date(), max_value=data_max.date(),
                            format="DD.MM.YYYY", key="rnp_period")
     status = c3.selectbox("Статус артикулов", R.STATUSES, key="rnp_status",
                           help="«Продается» — действующий ассортимент, «Выводим» — выводимые из ассортимента")
@@ -161,8 +162,7 @@ delta_label = t2.radio("Стрелки ▲▼ к пред. дню/неделе",
                        key="rnp_delta")
 delta_mode = {"Ключевые строки": "key", "Все строки": "all", "Выключить": "off"}[delta_label]
 if sections:
-    components.html(render_table(report, hyps, delta_mode=delta_mode, sections=sections, height=780), height=780,
-                    scrolling=False)
+    st.iframe(render_table(report, hyps, delta_mode=delta_mode, sections=sections, height=780), height=780)
     st.markdown('<div class="note">Проценты и стоимости считаются от сумм окна. Продажи отстают от заказов на 3–10 дней, поэтому '
                 "по дням факт маржи и выкупа «плавает» — для оценки изменений смотрите блок «Прогноз» (по заказам). "
                 "Остатки — на конец окна. Креаторы заполняются только в недельных колонках.</div>", unsafe_allow_html=True)

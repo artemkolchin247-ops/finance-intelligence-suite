@@ -60,7 +60,7 @@ def _delta(cur: float, prev: float, is_pp: bool, good: str | None) -> tuple[str,
         diff, text = cur - prev, None
         if abs(diff) < 0.0005:
             return None
-        text = f"{abs(diff) * 100:.1f} п.п.".replace(".", ",")
+        text = f"{abs(diff) * 100:.1f}".replace(".", ",") + " п.п."
     else:
         if prev == 0:
             return None

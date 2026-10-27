@@ -56,6 +56,7 @@ def fmt_thousands(v: Any, digits: int = 1) -> str:
 _FORMATTERS = {
     "int": fmt_int,
     "k": fmt_thousands,
+    "k0": lambda v: fmt_thousands(v, 0),
     "rub0": lambda v: fmt_num(v, 0),
     "rub1": lambda v: fmt_num(v, 1),
     "rub2": lambda v: fmt_num(v, 2),

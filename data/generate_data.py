@@ -15,7 +15,7 @@ import pandas as pd
 
 SEED = 7
 START = pd.Timestamp("2026-03-01")
-END = pd.Timestamp("2026-06-08")
+END = pd.Timestamp("2026-09-06")  # last actual day of the data set ("as of" date)
 PRE_DAYS = 12  # simulated before START so lagged buyouts exist on day one
 OUT_PATH = Path(__file__).with_name("finance_db.xlsx")
 MARKETPLACES = ["WB", "Ozon"]
@@ -79,12 +79,12 @@ OUTGOING_RUBY = {"washed_barbie", "washed_candy", "washed_khaki", "total_love_re
 
 # orders/day on WB for the whole model, list price before SPP (rub), sebes share of price
 MODEL_CFG = {
-    "Vuki": (45, 1500, 0.220), "Moon": (10, 1500, 0.220), "Wendy": (60, 1700, 0.295), "Ruby": (70, 1600, 0.295),
-    "Joy": (42, 1550, 0.295), "Audrey": (35, 1750, 0.285), "Lana": (22, 1400, 0.295), "Moon2": (20, 1600, 0.295),
-    "Vuki2": (25, 1650, 0.295), "Alice": (14, 1500, 0.305), "Bella": (15, 1450, 0.295), "Charlotte": (10, 1800, 0.285),
-    "Eva": (9, 1300, 0.295), "Miafull": (12, 1900, 0.275), "Valery": (15, 1750, 0.285), "Set Bella": (5, 2900, 0.275),
-    "Set Moon": (7, 3000, 0.275), "Set Moon2": (5, 3100, 0.275), "set ruby": (6, 3200, 0.275), "Set Vuki": (6, 3000, 0.275),
-    "Set Vuki2": (4, 3100, 0.275), "Set Wendy": (2.5, 3300, 0.275), "Set Wookiee": (3, 3200, 0.275),
+    "Vuki": (45, 1500, 0.17), "Moon": (10, 1500, 0.17), "Wendy": (60, 1700, 0.20), "Ruby": (70, 1600, 0.20),
+    "Joy": (42, 1550, 0.20), "Audrey": (35, 1750, 0.20), "Lana": (22, 1400, 0.20), "Moon2": (20, 1600, 0.20),
+    "Vuki2": (25, 1650, 0.20), "Alice": (14, 1500, 0.20), "Bella": (15, 1450, 0.20), "Charlotte": (10, 1800, 0.20),
+    "Eva": (9, 1300, 0.20), "Miafull": (12, 1900, 0.20), "Valery": (15, 1750, 0.20), "Set Bella": (5, 2900, 0.20),
+    "Set Moon": (7, 3000, 0.20), "Set Moon2": (5, 3100, 0.20), "set ruby": (6, 3200, 0.20), "Set Vuki": (6, 3000, 0.20),
+    "Set Vuki2": (4, 3100, 0.20), "Set Wendy": (2.5, 3300, 0.20), "Set Wookiee": (3, 3200, 0.20),
 }
 EXT_CHANNELS = {  # prob active, drr of orders_rub (lo,hi), cpc (lo,hi), ctr (lo,hi), click->order CR (lo,hi)
     "b": (0.35, 0.020, 0.050, 15, 35, 0.008, 0.02, 0.02, 0.06),
@@ -98,17 +98,17 @@ EXT_CHANNELS = {  # prob active, drr of orders_rub (lo,hi), cpc (lo,hi), ctr (lo
 # effects: price, orders, cr (click->order), clicks, buyout, int_cpc (abs, rub), int_drr (share of sales, abs),
 #          ext (spend/views multiplier), ext_cr, ext_cpc (abs)
 EVENTS = [
-    ("WB", "Wendy", "2026-04-30", "2026-06-08", None, dict(int_drr=0.045, int_cpc=9.9)),
-    ("WB", "Audrey", "2026-04-30", "2026-06-08", None, dict(cr=1.08)),
-    ("WB", "Joy", "2026-04-30", "2026-06-08", None, dict(ext=2.4, ext_cr=0.45, orders=0.93)),
-    ("WB", "Joy", "2026-05-07", "2026-06-08", None, dict(clicks=1.12)),
-    ("WB", "Lana", "2026-04-30", "2026-06-08", None, dict(ext=1.9, ext_cpc=2.6)),
-    ("WB", "Vuki", "2026-05-07", "2026-06-08", None, dict(price=0.80, orders=2.00, buyout=1.12, int_drr=0.035, ext=0.5)),
+    ("WB", "Wendy", "2026-04-30", "2026-09-06", None, dict(int_drr=0.045, int_cpc=9.9)),
+    ("WB", "Audrey", "2026-04-30", "2026-09-06", None, dict(cr=1.08)),
+    ("WB", "Joy", "2026-04-30", "2026-09-06", None, dict(ext=2.4, ext_cr=0.45, orders=0.93)),
+    ("WB", "Joy", "2026-05-07", "2026-09-06", None, dict(clicks=1.12)),
+    ("WB", "Lana", "2026-04-30", "2026-09-06", None, dict(ext=1.9, ext_cpc=2.6)),
+    ("WB", "Vuki", "2026-05-07", "2026-09-06", None, dict(price=0.80, orders=2.00, buyout=1.12, int_drr=0.035, ext=0.5)),
     ("WB", "Moon", "2026-05-07", "2026-05-11", None, dict(price=0.667, orders=3.44)),
     ("WB", "Moon", "2026-05-12", "2026-05-17", None, dict(price=0.80, orders=2.25)),
-    ("WB", "Moon", "2026-05-18", "2026-06-08", None, dict(price=0.733, orders=2.70)),
-    ("WB", "Wendy", "2026-05-10", "2026-06-08", None, dict(price=1.08, orders=1.12)),
-    ("WB", "Ruby", "2026-05-13", "2026-06-08", "Выводим", dict(price=0.90, orders=0.93, buyout=1.06)),
+    ("WB", "Moon", "2026-05-18", "2026-09-06", None, dict(price=0.733, orders=2.70)),
+    ("WB", "Wendy", "2026-05-10", "2026-09-06", None, dict(price=1.08, orders=1.12)),
+    ("WB", "Ruby", "2026-05-13", "2026-09-06", "Выводим", dict(price=0.90, orders=0.93, buyout=1.06)),
 ]
 CABINET_DIP = ("WB", "2026-05-19", "2026-05-21", 0.55)  # demand dip across the whole WB cabinet
 
@@ -232,10 +232,10 @@ def simulate_sku(rng, dates, sku, model, status, mp, weight) -> pd.DataFrame:
     sales_rub = sales * price
 
     sebes_unit = sku_price * sebes_share * rng.uniform(0.97, 1.03)
-    comis_pct = rng.uniform(0.17, 0.215) if mp == "WB" else rng.uniform(0.15, 0.20)
-    logist_unit = sku_price * rng.uniform(0.075, 0.10) * (1 if mp == "WB" else 0.92)
-    storage_unit = sku_price * rng.uniform(0.012, 0.02)
-    other_unit = sku_price * rng.uniform(0.008, 0.018)
+    comis_pct = rng.uniform(0.37, 0.41) if mp == "WB" else rng.uniform(0.32, 0.36)  # commission before SPP
+    logist_unit = sku_price * rng.uniform(0.10, 0.12) * (1 if mp == "WB" else 0.92)
+    storage_unit = sku_price * rng.uniform(0.015, 0.025)
+    other_unit = sku_price * rng.uniform(0.006, 0.012)
 
     # funnel
     cr_click_order = rng.uniform(0.03, 0.05) * ev["cr"]
@@ -272,6 +272,9 @@ def simulate_sku(rng, dates, sku, model, status, mp, weight) -> pd.DataFrame:
         "sales_qty": sales, "sales_rub": sales_rub, "sebes_rub": sales * sebes_unit,
         "comis_spp": sales_rub * comis_pct, "logist": sales * logist_unit, "storage": sales * storage_unit,
         "other": sales * other_unit, "_spp": spp,
+        "sales_spp_rub": sales_rub * (1 - spp),
+        "comp_sebes": sales * sebes_unit * rng.uniform(0.0, 0.002),
+        "accept": np.where(rng.random(n) < (0.12 if mp == "WB" else 0.0), sales_rub * rng.uniform(0.0, 0.004, n), 0.0),
         "clicks_total": clicks, "cart_total": carts,
         "adv_views": adv_views, "adv_clicks": adv_clicks, "adv_orders": adv_orders, "reclama": reclama,
         "stock_mp": stock,
@@ -317,7 +320,7 @@ def simulate_creators(rng, dim: pd.DataFrame) -> pd.DataFrame:
             for w in weeks:
                 if rng.random() > (0.65 if mp == "WB" else 0.35):
                     continue
-                spend = rng.uniform(15_000, 90_000) * (1 if mp == "WB" else 0.4)
+                spend = rng.uniform(5_000, 30_000) * (1 if mp == "WB" else 0.4)
                 impr = spend / rng.uniform(0.25, 0.5)
                 clicks = impr * rng.uniform(0.01, 0.03)
                 carts = clicks * rng.uniform(0.12, 0.25)
@@ -363,9 +366,11 @@ def main() -> None:
     ext = pd.concat(ext_frames, ignore_index=True)
     ext_alloc = allocate_ext(fact, ext)
 
-    nds = 0.05 * fact["sales_rub"] * (1 - fact["_spp"])
-    fact["margin_rub"] = (fact["sales_rub"] - fact["sebes_rub"] - fact["comis_spp"] - fact["logist"]
-                          - fact["storage"] - fact["other"] - nds - fact["reclama"] - ext_alloc)
+    # commission after SPP: the marketplace funds the SPP discount out of its commission
+    comis_after = fact["comis_spp"] - (fact["sales_rub"] - fact["sales_spp_rub"])
+    nds = 0.05 * fact["sales_spp_rub"]
+    fact["margin_rub"] = (fact["sales_spp_rub"] - fact["sebes_rub"] - fact["comp_sebes"] - comis_after - fact["logist"]
+                          - fact["storage"] - fact["accept"] - fact["other"] - nds - fact["reclama"] - ext_alloc)
 
     fact = fact[fact["date"] >= START].drop(columns=["_spp", "model"]).reset_index(drop=True)
     ext = ext[ext["date"] >= START].reset_index(drop=True)
