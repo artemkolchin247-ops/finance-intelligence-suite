@@ -11,7 +11,7 @@ from core.formatting import format_value
 from ui import finance_charts as fc
 from ui.components import Kpi, chart_card, kpi_row, page_header, section_title
 from ui.export import to_excel
-from ui.scenario import scenario_controls
+from ui.scenario import scenario_select
 from ui.state import get_schedule, get_finance, scenario
 from ui.statement_html import Col, TRow, render_statement
 
@@ -24,11 +24,12 @@ except (FileNotFoundError, ValueError, OSError) as exc:
 
 as_of = fin.as_of
 cur = as_of.to_period("M").to_timestamp()
-with st.expander("Допущения прогноза (сценарий)", expanded=False):
-    scenario_controls("dds", fin)
-    st.caption("Расходы прогнозируются как среднее за 3 последних закрытых месяца по каждой статье; выплаты маркетплейсов растут по заданному "
-               "тренду. Корректировки расходов, факторы, ручная замена цифр и новые направления вводятся на странице «Планирование». "
-               "Известные платежи из «Платёжного календаря» заменяют прогноз по своим статьям.")
+with st.container(border=True):
+    c0, c1 = st.columns([1.2, 2.8])
+    with c0:
+        scenario_select("dds")
+    c1.caption("Прогноз строится на странице «Прогноз»: поступления — оборот год назад × затухающий рост, расходы — среднее за 3 последних месяца плюс "
+               "корректировки из загруженного плана. Известные платежи из «Платёжного календаря» заменяют прогноз по своим статьям.")
 
 assump = scenario()
 schedule = get_schedule()

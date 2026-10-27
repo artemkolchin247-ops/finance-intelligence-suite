@@ -66,7 +66,7 @@ class LedgerRepository(ABC):
 
     @abstractmethod
     def get_plan_sheets(self) -> dict[str, pd.DataFrame]:
-        """Stored forecast plan: plan_cells, plan_factors, plan_initiatives (empty frames when nothing was saved)."""
+        """Stored forecast plan: plan_mp, plan_params, plan_extra, plan_adj (empty frames when nothing was saved)."""
 
     @abstractmethod
     def save_plan_sheets(self, sheets: dict[str, pd.DataFrame]) -> None: ...
@@ -136,7 +136,7 @@ class ExcelLedgerRepository(LedgerRepository):
 
     def get_plan_sheets(self) -> dict[str, pd.DataFrame]:
         out = {}
-        for name in ("plan_cells", "plan_factors", "plan_initiatives"):
+        for name in ("plan_mp", "plan_params", "plan_extra", "plan_adj"):
             try:
                 out[name] = self._sheet(name)
             except ValueError:

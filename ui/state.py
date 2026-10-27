@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import pandas as pd
 import streamlit as st
 
-from core import cashflow, planning, rnp_calc
+from core import cashflow, forecast, rnp_calc
 from core.data_repo import ExcelRepository
 from core.ledger import ExcelLedgerRepository, prepare_journal
 
@@ -24,7 +24,7 @@ class Dataset:
 
 
 # Bump when classes of cached objects change: a running server keeps cache_resource objects across code updates.
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 
 @st.cache_resource
@@ -112,27 +112,33 @@ def load_payment_plan() -> pd.DataFrame:
     return get_ledger_repo().get_payment_plan()
 
 
-def scenario() -> cashflow.Assumptions:
-    """Forecast assumptions of the current session (see ui.scenario)."""
-    from ui.scenario import scenario_for
-    return scenario_for(get_finance())
+def scenario_name() -> str:
+    return st.session_state.setdefault("scn", {}).get("scenario", "Базовый")
 
 
-def get_plan() -> planning.PlanInputs:
-    """The plan in use: the session's edited one if present, otherwise the saved one."""
-    live = st.session_state.get("plan_live")
-    if live is not None:
-        return live
+def get_plan() -> forecast.PlanInputs:
+    """The plan in use: an uploaded one (this session) or the one saved in the data workbook. It is edited only in Excel."""
+    override = st.session_state.get("plan_override")
+    if override:
+        return override["plan"]
     saved = st.session_state.get("plan_saved")
     if saved is None:
-        saved = planning.plan_from_sheets(get_ledger_repo().get_plan_sheets())
+        saved = forecast.plan_from_sheets(get_ledger_repo().get_plan_sheets())
         st.session_state["plan_saved"] = saved
     return saved
 
 
+def scenario() -> cashflow.Assumptions:
+    """Forecast assumptions of this session: the plan file's values (or history-based defaults) plus the chosen scenario."""
+    fin = get_finance()
+    return forecast.resolve_assumptions(get_plan(), cashflow.default_assumptions(fin.journal, fin.as_of),
+                                        forecast.SCENARIOS[scenario_name()])
+
+
 @st.cache_data(show_spinner=False, max_entries=32)
 def cached_schedule(assumptions: cashflow.Assumptions, payment_plan: pd.DataFrame, version: int, plan_key: tuple, _plan, _fin: FinanceData):
-    return cashflow.build_schedule(_fin.journal, _fin.balance_1c, payment_plan, _fin.as_of, assumptions, plan=_plan)
+    return cashflow.build_schedule(_fin.journal, _fin.balance_1c, payment_plan, _fin.as_of, assumptions, plan=_plan,
+                                   fact_monthly=_fin.fact_monthly)
 
 
 def get_schedule() -> pd.DataFrame:

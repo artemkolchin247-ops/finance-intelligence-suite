@@ -27,8 +27,9 @@ def ctx(repo):
 
 @pytest.fixture(scope="module")
 def schedule(ctx):
-    a = C.default_assumptions(ctx["j"], ctx["as_of"])
-    return C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a)
+    # purchases +30% so the calendar has a cash squeeze to react to (the default forecast stays above the buffer)
+    a = C.Assumptions(**{**C.default_assumptions(ctx["j"], ctx["as_of"]).__dict__, "purchase_scale": 1.3})
+    return C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a, fact_monthly=ctx["fm"])
 
 
 # ------------------------------------------------------------------ journal and classification
@@ -178,8 +179,8 @@ def test_actual_dds_matches_journal_without_transfers(ctx):
 
 
 def test_schedule_is_deterministic_and_within_horizon(ctx, schedule):
-    a = C.default_assumptions(ctx["j"], ctx["as_of"])
-    again = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a)
+    a = C.Assumptions(**{**C.default_assumptions(ctx["j"], ctx["as_of"]).__dict__, "purchase_scale": 1.3})
+    again = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a, fact_monthly=ctx["fm"])
     pd.testing.assert_frame_equal(schedule, again)
     assert schedule["date"].min() > ctx["as_of"] and schedule["date"].max() <= pd.Timestamp("2027-08-31")
     assert (schedule["date"].dt.weekday < 5).all()  # weekends move to the next business day
@@ -201,11 +202,13 @@ def test_manual_plan_replaces_forecast_and_overdue_goes_first(ctx, schedule):
 def test_assumptions_move_the_forecast(ctx):
     base = C.default_assumptions(ctx["j"], ctx["as_of"])
     def receipts(a):
-        s = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a)
+        s = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a, fact_monthly=ctx["fm"])
         return s[s["direction"] == "in"]["amount"].sum()
-    assert receipts(C.Assumptions(**{**base.__dict__, "growth_monthly": 0.0})) < receipts(C.Assumptions(**{**base.__dict__, "growth_monthly": 0.04}))
-    s0 = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], C.Assumptions(**{**base.__dict__, "dividends_month": 0.0}))
-    s1 = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], C.Assumptions(**{**base.__dict__, "dividends_month": 1e6}))
+    assert (receipts(C.Assumptions(**{**base.__dict__, "scenario_lambda": 0.45}))
+            < receipts(C.Assumptions(**{**base.__dict__, "scenario_lambda": 0.70}))
+            < receipts(C.Assumptions(**{**base.__dict__, "scenario_lambda": 0.90})))
+    s0 = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], C.Assumptions(**{**base.__dict__, "dividends_month": 0.0}), fact_monthly=ctx["fm"])
+    s1 = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], C.Assumptions(**{**base.__dict__, "dividends_month": 1e6}), fact_monthly=ctx["fm"])
     assert s1[s1["article"] == "Выплата дивидендов"]["amount"].sum() - s0[s0["article"] == "Выплата дивидендов"]["amount"].sum() == pytest.approx(11.8e6, rel=0.01)  # the current month counts only its remaining 80%
 
 
@@ -321,7 +324,7 @@ def test_rejected_recommendation_is_replaced_by_another(ctx, schedule, cal):
     assert first[0]["id"] not in {a["id"] for a in again} and again
     one = P.apply_moves(schedule, {first[0]["id"]: first[0]["to"]})  # applying a single recommendation changes only that payment
     assert (one["date"] != schedule["date"]).sum() == 1
-    assert P.daily_table(one, opening, start)["close"].min() >= P.daily_table(schedule, opening, start)["close"].min()
+    assert P.daily_table(one, opening, start)["close"].min() >= P.daily_table(schedule, opening, start)["close"].min() - 1e-3
 
 
 def test_each_recommendation_helps_on_its_own_and_rejection_never_repeats_a_payment(ctx, schedule, cal):

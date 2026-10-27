@@ -14,6 +14,7 @@ Sales data lives in `data/finance_db.xlsx` behind `DataRepository`, finance data
 - Data access only through `core/data_repo.py` (`DataRepository`).
 - Every division goes through `core.formatting.safe_div` (zero denominator -> NaN, rendered as "—").
 - Ratios are recomputed from summed raw fields, never averaged.
+- Forecast (`core/forecast.py`): GMV = same month last year × fading YoY (scenario λ), receipts = GMV × buyout × (1 − marketplace costs); expenses = 3-month average + corrections. Plan inputs are edited ONLY via the Excel template (no editing widgets in the app); the sole in-app control is the scenario switch.
 - ДДС and calendar come from ONE schedule (`core/cashflow.py: build_schedule`); never compute them separately.
 - ОПиУ marketplace lines come from `fact_monthly` (same raw fields as the РНП), the rest from the journal by accrual date; keep `margin == sum(margin_rub)`.
 - Real source files (`Журнал операций.xlsx`, `P&L.xlsx`, `rnp_daily.gs`) are git-ignored: never copy their contents (names, INN, card masks, credentials) into code, data or docs.
