@@ -12,12 +12,12 @@ from core.formatting import format_value
 from ui import finance_charts as fc
 from ui.components import Kpi, chart_card, kpi_row, page_header, section_title
 from ui.export import to_excel
-from ui.state import load_finance
+from ui.state import get_finance
 from ui.statement_html import Col, TRow, render_statement
 
 page_header("Баланс", "Управленческий баланс компании: что есть, что должны и чей это капитал")
 try:
-    fin = load_finance()
+    fin = get_finance()
 except (FileNotFoundError, ValueError, OSError) as exc:
     st.error(f"Не удалось загрузить данные: {exc}")
     st.stop()
@@ -26,8 +26,8 @@ fm = fin.fact_monthly
 closed = [pd.Timestamp(m) for m in sorted(fm["month"].unique()) if m + pd.offsets.MonthEnd(0) <= fin.as_of]
 opts = {m: f"{m:%m.%Y}" for m in closed}
 with st.container(border=True):
-    st.session_state.setdefault("bs_range", (opts[closed[-12]], opts[closed[-1]]))
-    lo, hi = st.select_slider("Период (концы месяцев)", options=list(opts.values()), key="bs_range")
+    kw = {} if "bs_range" in st.session_state else {"value": (opts[closed[-12]], opts[closed[-1]])}
+    lo, hi = st.select_slider("Период (концы месяцев)", options=list(opts.values()), key="bs_range", **kw)
 labels = list(opts.values())
 months = closed[labels.index(lo): labels.index(hi) + 1]
 

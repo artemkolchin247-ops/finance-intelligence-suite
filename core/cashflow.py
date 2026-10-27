@@ -207,7 +207,7 @@ def build_schedule(journal: pd.DataFrame, balance_1c: pd.DataFrame, payment_plan
     total_hist = rec_hist.sum(axis=1)
     season = seasonal_index(total_hist) if assumptions.seasonality else pd.Series(1.0, index=range(1, 13))
     base3 = total_hist.reindex(recent3)
-    deseason = float(np.mean([base3[m] / season[m.month] for m in recent3]))
+    deseason = float(np.nan_to_num(np.mean([base3[m] / season[m.month] for m in recent3]), nan=0.0))
     mp_share = {mp: float(rec_hist[art].reindex(recent).sum() / max(total_hist.reindex(recent).sum(), 1)) for art, mp in RECEIPT_ARTICLES.items()}
     last_closed = recent[-1]
     receipts_fc: dict[pd.Timestamp, float] = {}

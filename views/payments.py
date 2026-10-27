@@ -16,12 +16,12 @@ from ui import finance_charts as fc
 from ui.calendar_html import render_calendar
 from ui.components import Kpi, chart_card, kpi_row, page_header, section_title
 from ui.export import to_excel
-from ui.state import get_ledger_repo, get_schedule, load_finance, load_payment_plan, scenario
+from ui.state import get_ledger_repo, get_schedule, get_finance, load_payment_plan, scenario
 from ui.statement_html import Col, TRow, render_statement
 
 page_header("Платёжный календарь", "Что и когда платим и получаем в ближайшие 12 недель, где не хватит денег и что можно сдвинуть")
 try:
-    fin = load_finance()
+    fin = get_finance()
     plan_df = load_payment_plan()
 except (FileNotFoundError, ValueError, OSError) as exc:
     st.error(f"Не удалось загрузить данные: {exc}")
@@ -34,7 +34,9 @@ sig = (assump, len(base_schedule), round(float(base_schedule["amount"].sum())) i
 if st.session_state.get("cal_sig") != sig:  # moves refer to row ids: drop them when the scenario or plan changes
     st.session_state["cal_sig"] = sig
     st.session_state["cal_moves"] = {}
+    st.session_state["cal_rejected"] = set()
 moves: dict[str, pd.Timestamp] = st.session_state.setdefault("cal_moves", {})
+rejected: set = st.session_state.setdefault("cal_rejected", set())
 schedule = P.apply_moves(base_schedule, moves)
 
 opening = float(C.cash_by_account(fin.journal, fin.accounts, as_of)["balance"].sum())
@@ -75,7 +77,7 @@ kpi_row([
     Kpi("Недель ниже минимума", str(len(bad_weeks)), "кассовый разрыв!" if gap_weeks else ("риск" if bad_weeks else "всё в порядке"), good=not bad_weeks),
 ])
 
-advice = P.suggest_deferrals(view, opening_view, start, buffer)
+advice = P.suggest_deferrals(view, opening_view, start, buffer, exclude=rejected)
 if gap_weeks:
     st.error(f"Кассовый разрыв: в неделях {', '.join(str(w.week) for w in gap_weeks)} остаток уходит в минус.")
 if bad_weeks:
@@ -85,12 +87,26 @@ if bad_weeks:
     if advice:
         total = sum(a["amount"] for a in advice)
         with st.expander(f"Рекомендации: отложить {len(advice)} платежей на {total / 1e6:.2f} млн ₽ на неделю", expanded=True):
-            st.dataframe(pd.DataFrame([{"Статья": a["article"], "Сумма, ₽": round(a["amount"]), "Было": f"{a['from']:%d.%m.%Y}",
-                                        "Перенести на": f"{a['to']:%d.%m.%Y}"} for a in advice]), hide_index=True, width="stretch")
-            b1, b2 = st.columns(2)
-            if b1.button("Применить рекомендации", type="primary", key="cal_apply"):
+            st.caption("Каждую рекомендацию можно применить или отклонить отдельно: после отклонения предложим другой платёж.")
+            for a in advice:
+                r1, r2, r3, r4, r5 = st.columns([3, 1.3, 2, 1.1, 1.1])
+                r1.markdown(f"**{a['article']}**")
+                r2.write(f"{a['amount'] / 1000:,.0f} тыс. ₽".replace(",", "\u202f"))
+                r3.write(f"{a['from']:%d.%m.%Y} → {a['to']:%d.%m.%Y}")
+                if r4.button("Применить", key=f"adv_ok_{a['id']}"):
+                    moves[a["id"]] = a["to"]
+                    st.rerun()
+                if r5.button("Отклонить", key=f"adv_no_{a['id']}"):
+                    rejected.add(a["id"])
+                    st.rerun()
+            if st.button("Применить все рекомендации", type="primary", key="cal_apply_all"):
                 moves.update({a["id"]: a["to"] for a in advice})
                 st.rerun()
+    elif rejected:
+        st.info("Подходящих платежей для переноса больше нет — верните отклонённые рекомендации или сдвиньте платёж вручную ниже.")
+if rejected and st.button(f"Вернуть отклонённые рекомендации ({len(rejected)})", key="cal_unreject"):
+    st.session_state["cal_rejected"] = set()
+    st.rerun()
 if moves and st.button(f"Сбросить переносы ({len(moves)})", key="cal_reset"):
     st.session_state["cal_moves"] = {}
     st.rerun()

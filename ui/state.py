@@ -73,13 +73,25 @@ def load_finance() -> FinanceData:
                        repo.get_fact_monthly(), repo.get_balance_1c(), as_of)
 
 
+def get_finance() -> FinanceData:
+    """Finance data of this session: an uploaded journal if one was applied, otherwise the stored workbook."""
+    override = st.session_state.get("ledger_override")
+    return override["fin"] if override else load_finance()
+
+
+def finance_key() -> int:
+    """Changes whenever the session's journal changes (cache key for derived results)."""
+    override = st.session_state.get("ledger_override")
+    return override["version"] if override else 0
+
+
 def load_payment_plan() -> pd.DataFrame:
     return get_ledger_repo().get_payment_plan()
 
 
 def scenario() -> cashflow.Assumptions:
     """Forecast assumptions of the current session; defaults are derived from the history."""
-    fin = load_finance()
+    fin = get_finance()
     base = cashflow.default_assumptions(fin.journal, fin.as_of)
     ss = st.session_state
     return cashflow.Assumptions(
@@ -89,12 +101,14 @@ def scenario() -> cashflow.Assumptions:
 
 
 @st.cache_data(show_spinner=False, max_entries=32)
-def cached_schedule(growth: float, season: bool, purchase: float, payroll: float, dividends: float, plan: pd.DataFrame):
-    fin = load_finance()
+def cached_schedule(growth: float, season: bool, purchase: float, payroll: float, dividends: float, plan: pd.DataFrame,
+                    version: int, _fin: FinanceData):
+    fin = _fin
     a = cashflow.Assumptions(growth, season, purchase, payroll, dividends)
     return cashflow.build_schedule(fin.journal, fin.balance_1c, plan, fin.as_of, a)
 
 
 def get_schedule() -> pd.DataFrame:
     a = scenario()
-    return cached_schedule(a.growth_monthly, a.seasonality, a.purchase_scale, a.payroll_index, a.dividends_month, load_payment_plan())
+    return cached_schedule(a.growth_monthly, a.seasonality, a.purchase_scale, a.payroll_index, a.dividends_month, load_payment_plan(),
+                           finance_key(), get_finance())

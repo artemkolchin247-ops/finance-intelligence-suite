@@ -61,10 +61,10 @@ with st.container(border=True):
     c1, c2, c3 = st.columns([1, 1.5, 1])
     # defaults live in session state so the "open from hypotheses" jump can override them without widget warnings
     st.session_state.setdefault("rnp_mp", "WB")
-    st.session_state.setdefault("rnp_period", (max(DEFAULT_START, data_min).date(), min(DEFAULT_END, data_max).date()))
+    period_kw = {} if "rnp_period" in st.session_state else {"value": (max(DEFAULT_START, data_min).date(), min(DEFAULT_END, data_max).date())}
     mp = c1.segmented_control("Маркетплейс", MARKETPLACES, key="rnp_mp") or "WB"
     period = c2.date_input("Период", min_value=data_min.date(), max_value=data_max.date(),
-                           format="DD.MM.YYYY", key="rnp_period")
+                           format="DD.MM.YYYY", key="rnp_period", **period_kw)
     status = c3.selectbox("Статус артикулов", R.STATUSES, key="rnp_status",
                           help="«Продается» — действующий ассортимент, «Выводим» — выводимые из ассортимента")
     d1, d2 = st.columns([1, 1.5])

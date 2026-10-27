@@ -14,6 +14,7 @@ navigation = st.navigation(
             st.Page("views/hypotheses.py", title="Гипотезы", icon=":material/lightbulb:"),
         ],
         "Финансы": [
+            st.Page("views/journal.py", title="Журнал операций", icon=":material/receipt_long:"),
             st.Page("views/pnl.py", title="ОПиУ", icon=":material/account_balance_wallet:"),
             st.Page("views/dds.py", title="ДДС", icon=":material/swap_vert:"),
             st.Page("views/payments.py", title="Платёжный календарь", icon=":material/calendar_month:"),

@@ -12,12 +12,12 @@ from core.formatting import format_value
 from ui import finance_charts as fc
 from ui.components import Kpi, chart_card, kpi_row, page_header, section_title
 from ui.export import to_excel
-from ui.state import load_finance
+from ui.state import get_finance
 from ui.statement_html import KIND_FMT, Col, TRow, render_statement
 
 page_header("ОПиУ", "Отчёт о прибылях и убытках: что заработали, на что потратили и сколько осталось")
 try:
-    fin = load_finance()
+    fin = get_finance()
 except (FileNotFoundError, ValueError, OSError) as exc:
     st.error(f"Не удалось загрузить данные: {exc}")
     st.stop()
@@ -30,8 +30,8 @@ labels = {m: f"{m:%m.%Y}" for m in closed}
 with st.container(border=True):
     c1, c2, c3 = st.columns([1, 2, 1.4])
     mp = c1.segmented_control("Маркетплейс", ["Все", "WB", "Ozon"], default="Все", key="pl_mp") or "Все"
-    st.session_state.setdefault("pl_range", (labels[closed[-6]], labels[closed[-1]]))
-    lo, hi = c2.select_slider("Период (месяцы)", options=list(labels.values()), key="pl_range")
+    kw = {} if "pl_range" in st.session_state else {"value": (labels[closed[-6]], labels[closed[-1]])}
+    lo, hi = c2.select_slider("Период (месяцы)", options=list(labels.values()), key="pl_range", **kw)
     gran = c3.segmented_control("Детализация", ["Месяцы", "Кварталы", "Годы"], default="Месяцы", key="pl_gran") or "Месяцы"
 opts = list(labels.values())
 months = closed[opts.index(lo): opts.index(hi) + 1]

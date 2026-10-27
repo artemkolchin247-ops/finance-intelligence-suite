@@ -11,12 +11,12 @@ from core.formatting import format_value
 from ui import finance_charts as fc
 from ui.components import Kpi, chart_card, kpi_row, page_header, section_title
 from ui.export import to_excel
-from ui.state import get_schedule, load_finance, scenario
+from ui.state import get_schedule, get_finance, scenario
 from ui.statement_html import Col, TRow, render_statement
 
 page_header("ДДС", "Движение денежных средств: факт и прогноз на 12 месяцев вперёд")
 try:
-    fin = load_finance()
+    fin = get_finance()
 except (FileNotFoundError, ValueError, OSError) as exc:
     st.error(f"Не удалось загрузить данные: {exc}")
     st.stop()

@@ -100,9 +100,10 @@ def apply_moves(schedule: pd.DataFrame, moves: dict[str, pd.Timestamp]) -> pd.Da
 
 
 def suggest_deferrals(schedule: pd.DataFrame, opening: float, start: pd.Timestamp, buffer: float,
-                      weeks: int = CAL_WEEKS, max_moves: int = 25) -> list[dict]:
+                      weeks: int = CAL_WEEKS, max_moves: int = 25, exclude: frozenset | set = frozenset()) -> list[dict]:
     """Greedy advice: move 'Можно отложить' payments a week later until the balance stays above the buffer.
 
+    Payments listed in `exclude` (rejected by the user) are never proposed.
     Returns [{'id','article','amount','from','to'}]; applying them with apply_moves() raises the minimum balance.
     """
     moves: dict[str, pd.Timestamp] = {}
@@ -116,7 +117,8 @@ def suggest_deferrals(schedule: pd.DataFrame, opening: float, start: pd.Timestam
             break
         first_bad = below["date"].iloc[0]
         cand = current[(current["direction"] == "out") & (current["priority"] == "Можно отложить") &
-                       (current["date"] >= start) & (current["date"] <= first_bad) & (current["date"] + pd.Timedelta(days=7) <= horizon_end)]
+                       (current["date"] >= start) & (current["date"] <= first_bad) & (current["date"] + pd.Timedelta(days=7) <= horizon_end)
+                       & ~current["id"].isin(exclude)]
         if cand.empty:
             break
         pick = cand.sort_values("amount", ascending=False).iloc[0]

@@ -310,3 +310,14 @@ def test_payment_plan_roundtrip(tmp_path):
     assert "journal" in pd.ExcelFile(path).sheet_names
     with pytest.raises(ValueError):
         repo.save_payment_plan(new.drop(columns=["Сумма"]))
+
+
+# ------------------------------------------------------------------ per-recommendation control
+def test_rejected_recommendation_is_replaced_by_another(ctx, schedule, cal):
+    opening, start = cal
+    first = P.suggest_deferrals(schedule, opening, start, 2_000_000)
+    again = P.suggest_deferrals(schedule, opening, start, 2_000_000, exclude={first[0]["id"]})
+    assert first[0]["id"] not in {a["id"] for a in again} and again
+    one = P.apply_moves(schedule, {first[0]["id"]: first[0]["to"]})  # applying a single recommendation changes only that payment
+    assert (one["date"] != schedule["date"]).sum() == 1
+    assert P.daily_table(one, opening, start)["close"].min() >= P.daily_table(schedule, opening, start)["close"].min()

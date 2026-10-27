@@ -64,6 +64,10 @@ class LedgerRepository(ABC):
     @abstractmethod
     def get_as_of(self) -> pd.Timestamp: ...
 
+    @abstractmethod
+    def save_ledger(self, journal: pd.DataFrame, articles: pd.DataFrame, accounts: pd.DataFrame, as_of: pd.Timestamp) -> None:
+        """Replace the journal (internal column names), the article and account references and the as-of date."""
+
 
 class ExcelLedgerRepository(LedgerRepository):
     def __init__(self, path: Path = DEFAULT_LEDGER_PATH) -> None:
@@ -122,6 +126,20 @@ class ExcelLedgerRepository(LedgerRepository):
     def get_as_of(self) -> pd.Timestamp:
         meta = self._sheet("meta")
         return pd.Timestamp(meta.loc[meta["key"] == "as_of", "value"].iloc[0])
+
+    def save_ledger(self, journal: pd.DataFrame, articles: pd.DataFrame, accounts: pd.DataFrame, as_of: pd.Timestamp) -> None:
+        inv_j = {v: k for k, v in JOURNAL_RENAME.items()}
+        inv_a = {v: k for k, v in ARTICLE_RENAME.items()}
+        inv_c = {v: k for k, v in ACCOUNT_RENAME.items()}
+        try:
+            with pd.ExcelWriter(self._path, engine="openpyxl", mode="a", if_sheet_exists="replace") as xw:
+                journal.rename(columns=inv_j)[list(JOURNAL_RENAME)].to_excel(xw, sheet_name="journal", index=False)
+                articles.rename(columns=inv_a)[list(ARTICLE_RENAME)].to_excel(xw, sheet_name="articles", index=False)
+                accounts.rename(columns=inv_c)[list(ACCOUNT_RENAME)].to_excel(xw, sheet_name="accounts", index=False)
+                pd.DataFrame({"key": ["as_of"], "value": [as_of.strftime("%Y-%m-%d")]}).to_excel(xw, sheet_name="meta", index=False)
+        except OSError as exc:
+            raise OSError(f"Cannot write the ledger to {self._path.name}: {exc}") from exc
+        self._sheets = None
 
     def save_payment_plan(self, df: pd.DataFrame) -> None:
         missing = [c for c in PLAN_COLUMNS if c not in df.columns]
