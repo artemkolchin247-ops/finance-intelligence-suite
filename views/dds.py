@@ -25,7 +25,7 @@ except (FileNotFoundError, ValueError, OSError) as exc:
 as_of = fin.as_of
 cur = as_of.to_period("M").to_timestamp()
 with st.container(border=True):
-    c0, c1 = st.columns([1.2, 2.8])
+    c0, c1 = st.columns([2.2, 2.8])
     with c0:
         scenario_select("dds")
     c1.caption("Прогноз строится на странице «Прогноз»: поступления — оборот год назад × затухающий рост, расходы — среднее за 3 последних месяца плюс "
