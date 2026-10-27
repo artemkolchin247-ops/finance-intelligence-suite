@@ -3,7 +3,7 @@ import streamlit as st
 
 from ui.styles import inject_styles
 
-st.set_page_config(page_title="Finance Intelligence Suite", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Finance Intelligence Suite", page_icon="📊", layout="wide", initial_sidebar_state="expanded")
 inject_styles()
 st.logo("assets/logo.svg", size="large")
 

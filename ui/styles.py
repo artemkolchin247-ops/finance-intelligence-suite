@@ -7,7 +7,9 @@ CSS = """
   --bg:#F5F7FB; --card:#FFFFFF; --line:#E4E8F0; --ink:#1B2437; --muted:#6B7690;
   --primary:#2F5BEA; --good:#14935F; --bad:#D6404A; --warn:#C27A0E;
 }
-#MainMenu, footer, header[data-testid="stHeader"] {visibility:hidden; height:0;}
+#MainMenu, footer, [data-testid="stToolbar"] {visibility:hidden;}
+header[data-testid="stHeader"] {background:transparent;}  /* keep the header: it holds the button that reopens the sidebar */
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] {visibility:visible !important;}
 .block-container {padding-top:1.4rem; padding-bottom:2rem; max-width:1500px;}
 section[data-testid="stSidebar"] {background:#FFFFFF; border-right:1px solid var(--line); min-width:300px !important;}
 h1, h2, h3 {color:var(--ink); letter-spacing:-0.01em;}
