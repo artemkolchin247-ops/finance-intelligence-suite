@@ -88,17 +88,24 @@ if bad_weeks:
         total = sum(a["amount"] for a in advice)
         with st.expander(f"Рекомендации: отложить {len(advice)} платежей на {total / 1e6:.2f} млн ₽ на неделю", expanded=True):
             st.caption("Каждую рекомендацию можно применить или отклонить отдельно: после отклонения предложим другой платёж.")
-            for a in advice:
-                r1, r2, r3, r4, r5 = st.columns([3, 1.3, 2, 1.1, 1.1])
-                r1.markdown(f"**{a['article']}**")
+            for i, a in enumerate(advice):
+                r1, r2, r3, r4, r5 = st.columns([3, 1.3, 2.3, 1.1, 1.1])
+                r1.markdown(f"**{a['article']}**  \n<small>закрывает нехватку {a['shortfall'] / 1000:,.0f} тыс. ₽ на неделе {a['week']}</small>"
+                            .replace(",", "\u202f"), unsafe_allow_html=True)
                 r2.write(f"{a['amount'] / 1000:,.0f} тыс. ₽".replace(",", "\u202f"))
                 r3.write(f"{a['from']:%d.%m.%Y} → {a['to']:%d.%m.%Y}")
-                if r4.button("Применить", key=f"adv_ok_{a['id']}"):
+                if r4.button("Применить", key=f"adv_ok_{i}_{a['id']}"):
                     moves[a["id"]] = a["to"]
                     st.rerun()
-                if r5.button("Отклонить", key=f"adv_no_{a['id']}"):
+                if r5.button("Отклонить", key=f"adv_no_{i}_{a['id']}"):
                     rejected.add(a["id"])
                     st.rerun()
+            after = P.daily_table(P.apply_moves(view, {a["id"]: a["to"] for a in advice}), opening_view, start)["close"].min()
+            if after < buffer:
+                st.warning(f"Если применить все рекомендации, минимальный остаток вырастет до {after / 1e6:.2f} млн ₽ — этого недостаточно "
+                           f"(нужно {buffer / 1e6:.1f} млн ₽). Остальное — перенос платежей вручную, ускорение поступлений или меньший буфер.")
+            else:
+                st.success(f"После всех рекомендаций минимальный остаток — {after / 1e6:.2f} млн ₽, выше минимума.")
             if st.button("Применить все рекомендации", type="primary", key="cal_apply_all"):
                 moves.update({a["id"]: a["to"] for a in advice})
                 st.rerun()

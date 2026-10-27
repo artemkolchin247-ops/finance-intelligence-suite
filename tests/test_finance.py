@@ -264,7 +264,8 @@ def test_cash_gap_flags_and_deferral_advice(ctx, schedule, cal):
     moved = P.apply_moves(schedule, {a["id"]: a["to"] for a in advice})
     assert advice and moved["status"].eq("Отложен").sum() == len({a["id"] for a in advice})
     assert P.daily_table(moved, opening, start)["close"].min() > P.daily_table(schedule, opening, start)["close"].min()
-    assert all(a["to"] > a["from"] for a in advice)
+    assert all(a["to"] >= a["from"] + pd.Timedelta(days=7) for a in advice)
+    assert len({a["id"] for a in advice}) == len(advice)  # every payment is proposed at most once
     # priority "Можно отложить" only
     ids = {a["id"] for a in advice}
     assert set(schedule[schedule["id"].isin(ids)]["priority"]) == {"Можно отложить"}
@@ -321,3 +322,19 @@ def test_rejected_recommendation_is_replaced_by_another(ctx, schedule, cal):
     one = P.apply_moves(schedule, {first[0]["id"]: first[0]["to"]})  # applying a single recommendation changes only that payment
     assert (one["date"] != schedule["date"]).sum() == 1
     assert P.daily_table(one, opening, start)["close"].min() >= P.daily_table(schedule, opening, start)["close"].min()
+
+
+def test_each_recommendation_helps_on_its_own_and_rejection_never_repeats_a_payment(ctx, schedule, cal):
+    opening, start = cal
+    base_min = P.daily_table(schedule, opening, start)["close"].min()
+    advice = P.suggest_deferrals(schedule, opening, start, 2_000_000)
+    for a in advice[:3]:  # applied alone, a recommendation does not worsen the balance and moves only its payment
+        one = P.apply_moves(schedule, {a["id"]: a["to"]})
+        assert P.daily_table(one, opening, start)["close"].min() >= base_min - 1.0
+    rejected = set()
+    for _ in range(6):  # reject the first proposal repeatedly: ids stay unique and never come back
+        nxt = P.suggest_deferrals(schedule, opening, start, 2_000_000, exclude=rejected)
+        assert len({a["id"] for a in nxt}) == len(nxt) and not rejected & {a["id"] for a in nxt}
+        if not nxt:
+            break
+        rejected.add(nxt[0]["id"])

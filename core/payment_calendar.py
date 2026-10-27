@@ -15,6 +15,7 @@ _GROUP_MAP = {
     "Логистика и ФФ": "Поставщики и логистика", "Маркетинг": "Маркетинг", "Кредиты": "Кредиты и дивиденды",
     "% по кредитам": "Кредиты и дивиденды", "Вывод дивидендов": "Кредиты и дивиденды",
 }
+MIN_MOVE = 50_000.0  # smallest payment worth proposing for deferral, rub
 PRIORITY_ORDER = ("Критичный", "Обязательный", "Можно отложить")
 
 
@@ -101,30 +102,40 @@ def apply_moves(schedule: pd.DataFrame, moves: dict[str, pd.Timestamp]) -> pd.Da
 
 def suggest_deferrals(schedule: pd.DataFrame, opening: float, start: pd.Timestamp, buffer: float,
                       weeks: int = CAL_WEEKS, max_moves: int = 25, exclude: frozenset | set = frozenset()) -> list[dict]:
-    """Greedy advice: move 'Можно отложить' payments a week later until the balance stays above the buffer.
+    """Advice for closing periods when the balance is below the buffer: defer 'Можно отложить' payments.
 
-    Payments listed in `exclude` (rejected by the user) are never proposed.
-    Returns [{'id','article','amount','from','to'}]; applying them with apply_moves() raises the minimum balance.
+    Each payment is proposed at most once and moved to just after the shortfall window (at least a week). For the
+    first day below the buffer the smallest single payment covering the shortfall is taken, otherwise the largest;
+    the balance is then recomputed and the next shortfall is handled. Payments in `exclude` (rejected by the user)
+    are never proposed. Payments below max(50 тыс. ₽, 10% of the shortfall) are skipped, so the advice may not
+    close the whole shortfall — callers should check the balance after applying it. Returns [{'id','article','amount','from','to','week','shortfall'}] in the order of use.
     """
-    moves: dict[str, pd.Timestamp] = {}
     advice: list[dict] = []
+    used = set(exclude)
+    skip_until = start - pd.Timedelta(days=1)  # shortfalls up to this date cannot be helped and are left alone
     current = schedule
     horizon_end = start + pd.Timedelta(days=7 * weeks - 1)
     for _ in range(max_moves):
         daily = daily_table(current, opening, start, weeks)
-        below = daily[daily["close"] < buffer]
+        below = daily[(daily["close"] < buffer) & (daily["date"] > skip_until)]
         if below.empty:
             break
-        first_bad = below["date"].iloc[0]
-        cand = current[(current["direction"] == "out") & (current["priority"] == "Можно отложить") &
-                       (current["date"] >= start) & (current["date"] <= first_bad) & (current["date"] + pd.Timedelta(days=7) <= horizon_end)
-                       & ~current["id"].isin(exclude)]
+        d1 = below["date"].iloc[0]
+        episode = daily[(daily["date"] >= d1) & (daily["date"] <= d1 + pd.Timedelta(days=6))]
+        shortfall = float(buffer - episode["close"].min())
+        cand = current[(current["direction"] == "out") & (current["priority"] == "Можно отложить") & (current["date"] >= start)
+                       & (current["date"] <= d1) & ~current["id"].isin(used)].copy()
+        cand = cand[cand["amount"] >= max(MIN_MOVE, 0.1 * shortfall)]  # micro-payments are not worth advising
+        if len(cand):
+            cand["target"] = [business_day(max(d + pd.Timedelta(days=7), d1 + pd.Timedelta(days=7))) for d in cand["date"]]
+            cand = cand[cand["target"] <= horizon_end]
         if cand.empty:
-            break
-        pick = cand.sort_values("amount", ascending=False).iloc[0]
-        new_date = business_day(pick["date"] + pd.Timedelta(days=7))
-        advice.append({"id": pick["id"], "article": pick["article"], "amount": float(pick["amount"]),
-                       "from": pick["date"], "to": new_date})
-        moves[pick["id"]] = new_date
-        current = apply_moves(current, {pick["id"]: new_date})
+            skip_until = d1 + pd.Timedelta(days=6)
+            continue
+        covering = cand[cand["amount"] >= shortfall]
+        pick = (covering.sort_values("amount").iloc[0] if len(covering) else cand.sort_values("amount", ascending=False).iloc[0])
+        advice.append({"id": pick["id"], "article": pick["article"], "amount": float(pick["amount"]), "from": pick["date"],
+                       "to": pick["target"], "week": int((d1 - start).days // 7) + 1, "shortfall": shortfall})
+        used.add(pick["id"])
+        current = apply_moves(current, {pick["id"]: pick["target"]})
     return advice

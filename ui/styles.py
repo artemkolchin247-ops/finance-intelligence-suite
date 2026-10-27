@@ -9,7 +9,7 @@ CSS = """
 }
 #MainMenu, footer, header[data-testid="stHeader"] {visibility:hidden; height:0;}
 .block-container {padding-top:1.4rem; padding-bottom:2rem; max-width:1500px;}
-section[data-testid="stSidebar"] {background:#FFFFFF; border-right:1px solid var(--line);}
+section[data-testid="stSidebar"] {background:#FFFFFF; border-right:1px solid var(--line); min-width:300px !important;}
 h1, h2, h3 {color:var(--ink); letter-spacing:-0.01em;}
 
 .page-title {font-size:1.6rem; font-weight:700; color:var(--ink); margin:0;}
@@ -19,7 +19,7 @@ h1, h2, h3 {color:var(--ink); letter-spacing:-0.01em;}
 .kpi {background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 12px;
       height:100%; box-shadow:0 1px 2px rgba(20,30,60,0.04);}
 .kpi .l {font-size:0.76rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em; font-weight:600;}
-.kpi .v {font-size:1.3rem; font-weight:700; color:var(--ink); margin:4px 0 2px 0; white-space:nowrap;}
+.kpi .v {font-size:clamp(1.05rem, 1.35vw, 1.3rem); font-weight:700; color:var(--ink); margin:4px 0 2px 0; overflow-wrap:anywhere;}
 .kpi .d {font-size:0.8rem; font-weight:600; color:var(--muted);}
 .kpi .d.up {color:var(--good);} .kpi .d.down {color:var(--bad);}
 

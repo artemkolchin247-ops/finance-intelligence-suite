@@ -26,8 +26,8 @@ fm = fin.fact_monthly
 closed = [pd.Timestamp(m) for m in sorted(fm["month"].unique()) if m + pd.offsets.MonthEnd(0) <= fin.as_of]
 opts = {m: f"{m:%m.%Y}" for m in closed}
 with st.container(border=True):
-    kw = {} if "bs_range" in st.session_state else {"value": (opts[closed[-12]], opts[closed[-1]])}
-    lo, hi = st.select_slider("Период (концы месяцев)", options=list(opts.values()), key="bs_range", **kw)
+    lo, hi = st.select_slider("Период (концы месяцев)", options=list(opts.values()), key="bs_range",
+                              value=(opts[closed[-12]], opts[closed[-1]]))
 labels = list(opts.values())
 months = closed[labels.index(lo): labels.index(hi) + 1]
 

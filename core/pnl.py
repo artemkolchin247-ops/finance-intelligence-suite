@@ -307,5 +307,5 @@ def highlights(result: PnlResult, a: str, b: str) -> list[tuple[str, str]]:
         out.append(("bad" if d > 0 else "good", f"Доля статьи «{label}» в выручке {'выросла' if d > 0 else 'снизилась'} на "
                     f"{str(round(abs(d) * 100, 1)).replace('.', ',')} п.п."))
     ea, eb = val("ebitda", a), val("ebitda", b)
-    out.append(("good" if eb >= ea else "bad", f"EBITDA {fmt_num(eb / 1000, 0)} тыс. ₽ ({signed((eb - ea) / 1000, ' тыс. ₽')}), чистая прибыль {fmt_num(val('net_profit', b) / 1000, 0)} тыс. ₽"))
+    out.append(("good" if eb >= ea else "bad", f"EBITDA {fmt_num(eb / 1000, 0)} тыс. ₽ ({'+' if eb >= ea else '−'}{fmt_num(abs(eb - ea) / 1000, 0)} тыс. ₽), чистая прибыль {fmt_num(val('net_profit', b) / 1000, 0)} тыс. ₽"))
     return out

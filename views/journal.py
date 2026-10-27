@@ -22,26 +22,25 @@ except (FileNotFoundError, ValueError, OSError) as exc:
 
 override = st.session_state.get("ledger_override")
 j = fin.journal
-period = f"{j['dds_date'].min():%d.%m.%Y} – {j['dds_date'].max():%d.%m.%Y}"
+fact = j[~j["planned"]]
 kpi_row([
-    Kpi("Источник", "Загруженный файл" if override else "Рабочий файл данных", override["name"] if override else ""),
-    Kpi("Операций", f"{len(j):,}".replace(",", " "), f"из них плановых: {int(j['planned'].sum())}"),
-    Kpi("Период по дате ДДС", period),
-    Kpi("Данные на дату", f"{fin.as_of:%d.%m.%Y}", "факт до этой даты"),
+    Kpi("Источник", "Загрузка" if override else "Файл данных", override["name"] if override else "рабочий файл приложения"),
+    Kpi("Операций", f"{len(j):,}".replace(",", "\u202f"), f"в т.ч. плановых: {int(j['planned'].sum())}"),
+    Kpi("Период факта", f"{fact['dds_date'].min():%m.%Y} – {fact['dds_date'].max():%m.%Y}", "по дате ДДС"),
+    Kpi("Данные на дату", f"{fin.as_of:%d.%m.%Y}", "факт до этой даты, далее план"),
     Kpi("Статей / счетов", f"{j['article'].nunique()} / {j['account'].nunique()}"),
 ])
 
 # ------------------------------------------------------------------ upload
 section_title("Загрузка операций")
 with st.expander("Загрузить журнал из Excel или CSV", expanded=override is None):
-    st.markdown(
-        "Файл в формате учётного журнала. Обязательные столбцы: **Дата ДДС** (когда получены или потрачены деньги), **Дата P&L** "
-        "(когда начислен доход или расход), **Приход**, **Расход**, **Статья операции**, **Касса / Счет**. Необязательные: МП, Кабинет, "
-        "Артикул поставщика, Р-р, Кол-во, Комментарий. Названия столбцов распознаются по началу (текст в скобках и после переноса строки "
-        "игнорируется). Статьи должны быть из справочника — новые можно классифицировать ниже.")
-    t1, t2, t3 = st.columns(3)
-    t1.download_button("Скачать шаблон", to_excel({"Журнал операций": J.to_template()}), file_name="journal_template.xlsx", key="jr_tpl")
-    t2.download_button("Скачать текущий журнал", to_excel({"Журнал операций": J.to_ru_columns(j)}), file_name="journal.xlsx", key="jr_cur")
+    st.markdown("**Обязательные столбцы:** Дата ДДС · Дата P&L · Приход · Расход · Статья операции · Касса / Счет  \n"
+                "**Необязательные:** МП · Кабинет · Артикул поставщика · Р-р · Кол-во · Комментарий")
+    st.caption("Заголовки распознаются по началу названия (текст в скобках и после переноса строки игнорируется). "
+               "Статьи не из справочника можно классифицировать ниже, перед применением.")
+    t1, t2 = st.columns(2)
+    t1.download_button("Скачать шаблон", to_excel({"Журнал операций": J.to_template()}), file_name="journal_template.xlsx", key="jr_tpl", width="stretch")
+    t2.download_button("Скачать текущий журнал", to_excel({"Журнал операций": J.to_ru_columns(j)}), file_name="journal.xlsx", key="jr_cur", width="stretch")
     mode = st.radio("Что сделать с загруженными операциями", ["Заменить журнал", "Добавить к текущему"], horizontal=True, key="jr_mode",
                     help="При добавлении полностью совпадающие операции пропускаются")
     upload = st.file_uploader("Файл журнала", type=["xlsx", "xls", "csv"], key="jr_file")

@@ -30,8 +30,9 @@ labels = {m: f"{m:%m.%Y}" for m in closed}
 with st.container(border=True):
     c1, c2, c3 = st.columns([1, 2, 1.4])
     mp = c1.segmented_control("Маркетплейс", ["Все", "WB", "Ozon"], default="Все", key="pl_mp") or "Все"
-    kw = {} if "pl_range" in st.session_state else {"value": (labels[closed[-6]], labels[closed[-1]])}
-    lo, hi = c2.select_slider("Период (месяцы)", options=list(labels.values()), key="pl_range", **kw)
+    # the default is passed on every run: a widget whose arguments change between runs gets a different identity
+    lo, hi = c2.select_slider("Период (месяцы)", options=list(labels.values()), key="pl_range",
+                              value=(labels[closed[-6]], labels[closed[-1]]))
     gran = c3.segmented_control("Детализация", ["Месяцы", "Кварталы", "Годы"], default="Месяцы", key="pl_gran") or "Месяцы"
 opts = list(labels.values())
 months = closed[opts.index(lo): opts.index(hi) + 1]
