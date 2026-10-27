@@ -27,8 +27,8 @@ def ctx(repo):
 
 @pytest.fixture(scope="module")
 def schedule(ctx):
-    # purchases +30% so the calendar has a cash squeeze to react to (the default forecast stays above the buffer)
-    a = C.Assumptions(**{**C.default_assumptions(ctx["j"], ctx["as_of"]).__dict__, "purchase_scale": 1.3})
+    # purchases +50% so the calendar has a cash squeeze to react to (the default forecast stays above the buffer)
+    a = C.Assumptions(**{**C.default_assumptions(ctx["j"], ctx["as_of"]).__dict__, "purchase_scale": 1.5})
     return C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a, fact_monthly=ctx["fm"])
 
 
@@ -179,7 +179,7 @@ def test_actual_dds_matches_journal_without_transfers(ctx):
 
 
 def test_schedule_is_deterministic_and_within_horizon(ctx, schedule):
-    a = C.Assumptions(**{**C.default_assumptions(ctx["j"], ctx["as_of"]).__dict__, "purchase_scale": 1.3})
+    a = C.Assumptions(**{**C.default_assumptions(ctx["j"], ctx["as_of"]).__dict__, "purchase_scale": 1.5})
     again = C.build_schedule(ctx["j"], ctx["b1c"], ctx["plan"], ctx["as_of"], a, fact_monthly=ctx["fm"])
     pd.testing.assert_frame_equal(schedule, again)
     assert schedule["date"].min() > ctx["as_of"] and schedule["date"].max() <= pd.Timestamp("2027-08-31")

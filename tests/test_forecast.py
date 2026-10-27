@@ -72,16 +72,39 @@ def test_scenarios_are_ordered_and_lambda_one_keeps_growth():
     assert full.yoy.loc[full.months[-1], "WB"] == pytest.approx(F.auto_assumptions(FM, AS_OF)["WB"]["yoy"] - 1)
 
 
-def test_cash_chain_buyout_times_one_minus_costs():
+def test_payout_chain_and_cash_delay():
     v = F.build_forecast(FM, AS_OF, 0.7)
-    a = F.auto_assumptions(FM, AS_OF)["WB"]
+    a = F.auto_assumptions(FM, AS_OF)["Ozon"]
     assert a["buyout"] == pytest.approx(0.7)
-    payout = 0.8 - 0.4 + 0.2 - 0.1 - 0.02 - 0.05  # sales after SPP - commission after SPP - logistics - storage - advertising, per 1 of sales
-    assert a["mp_cost"] == pytest.approx(1 - 0.8 + 0.0 - 0.0) or True
-    m = v.months[0]
-    assert v.receipts.loc[m, "WB"] == pytest.approx(v.gmv.loc[m, "WB"] * a["buyout"] * (1 - a["mp_cost"]))
-    assert v.cash_ratio.loc[m, "WB"] == pytest.approx(a["buyout"] * (1 - a["mp_cost"]))
-    assert payout > 0
+    for m in v.months[2:]:  # flat marketplace: sales and payout follow the orders once the buy-out lag has passed
+        assert v.sales.loc[m, "Ozon"] == pytest.approx(v.gmv.loc[m, "Ozon"] * a["buyout"], rel=0.03)
+        assert v.payout.loc[m, "Ozon"] == pytest.approx(v.sales.loc[m, "Ozon"] * (1 - a["mp_cost"]), rel=0.03)
+    # the tail of the last weeks is still on its way at the end of the horizon, so the cash is below the accrued payout
+    assert v.receipts.loc[v.months, "WB"].sum() < v.payout.loc[v.months, "WB"].sum()
+    # payments are dated after the report date, on the marketplace's weekdays, and add up to the monthly cash
+    assert (v.payments["date"] > AS_OF).all()
+    assert set(v.payments[v.payments["stream"] == "Ozon"]["date"].dt.weekday) == {2}
+    assert v.payments[v.payments["stream"] == "WB"]["date"].dt.weekday.isin([0, 1]).all()
+    assert (v.payments["base"] + v.payments["extra"]).sum() == pytest.approx(v.receipts_by_stream.loc[v.months].to_numpy().sum())
+
+
+def test_delay_profile_shifts_cash_and_conserves_the_total():
+    fast = F.PlanInputs(lag=pd.DataFrame([{"mp": "WB", "w0": 100.0}, {"mp": "Ozon", "w0": 100.0}]))
+    slow = F.PlanInputs(lag=pd.DataFrame([{"mp": "WB", "w4": 100.0}, {"mp": "Ozon", "w4": 100.0}]))
+    vf, vs = F.build_forecast(FM, AS_OF, 0.7, fast), F.build_forecast(FM, AS_OF, 0.7, slow)
+    assert vf.lag_used["WB"][0] == 1.0 and vs.lag_used["WB"][4] == 1.0
+    assert vf.receipts.loc[vf.months[:4], "Итого"].sum() > vs.receipts.loc[vs.months[:4], "Итого"].sum()
+    # the delay only moves money in time: the same payouts arrive, minus the weeks that fall beyond the horizon
+    assert vs.receipts.loc[vs.months, "Итого"].sum() == pytest.approx(vf.receipts.loc[vf.months, "Итого"].sum(), rel=0.12)
+
+
+def test_lag_profile_is_estimated_from_the_journal(env):
+    est = F.estimate_lag(env["fm"], env["j"], env["as_of"])
+    for mp, true in (("WB", (0.0, 0.04, 0.38, 0.36, 0.17, 0.05)), ("Ozon", (0.0, 0.12, 0.46, 0.30, 0.12, 0.0))):
+        assert sum(est[mp]) == pytest.approx(1.0)
+        assert sum(k * p for k, p in enumerate(est[mp])) == pytest.approx(sum(k * p for k, p in enumerate(true)), abs=0.25)  # mean delay, weeks
+    short = F.estimate_lag(env["fm"], env["j"][env["j"]["dds_date"] > pd.Timestamp("2026-06-01")], env["as_of"])
+    assert short == F.DEFAULT_LAG  # too little history -> standard profile
 
 
 def test_user_values_replace_auto_and_extra_revenue_adds():
@@ -94,8 +117,12 @@ def test_user_values_replace_auto_and_extra_revenue_adds():
     base = F.build_forecast(FM, AS_OF, 0.7, F.PlanInputs(plan.mp))
     nov, jan = pd.Timestamp("2026-11-01"), pd.Timestamp("2027-01-01")
     assert v.gmv.loc[nov, "Доп. выручка"] == 1_000_000.0 and v.gmv.loc[jan, "Доп. выручка"] == 0.0
-    assert v.receipts.loc[nov, "Итого"] - base.receipts.loc[nov, "Итого"] == pytest.approx(1_000_000.0 * 0.7 * (1 - F.auto_assumptions(FM, AS_OF)["Ozon"]["mp_cost"]))
-    assert v.receipts_by_stream.loc[nov, "Ozon"] > base.receipts_by_stream.loc[nov, "Ozon"]
+    oz = F.auto_assumptions(FM, AS_OF)["Ozon"]
+    extra = v.extra_receipts["Ozon"]
+    assert extra[:pd.Timestamp("2026-10-01")].sum() == 0  # nothing before the first month
+    assert extra.sum() == pytest.approx(2_000_000.0 * oz["buyout"] * (1 - oz["mp_cost"]), rel=1e-6)  # both months arrive within the horizon, delayed
+    assert extra[pd.Timestamp("2026-12-01")] > extra[pd.Timestamp("2026-11-01")] > 0
+    assert (v.receipts["Итого"] - base.receipts["Итого"]).loc[v.months].sum() == pytest.approx(extra.sum())
 
 
 def test_expenses_are_three_month_averages_plus_corrections(env):
@@ -120,8 +147,8 @@ def test_purchases_follow_receipts_only_when_asked(env):
     plan = F.PlanInputs(extra=pd.DataFrame([{"name": "N", "mp": "WB", "start": pd.Timestamp("2026-11-01"), "end": pd.NaT, "gmv": 20e6, "comment": ""}]))
     flat = F.build_layers(env["j"], env["fm"], env["as_of"], env["a"], plan).expenses["final"].loc["Закупка товара"]
     tied = F.build_layers(env["j"], env["fm"], env["as_of"], C.Assumptions(**{**env["a"].__dict__, "scale_variable": True}), plan).expenses["final"].loc["Закупка товара"]
-    nov = pd.Timestamp("2026-11-01")
-    assert tied[nov] > flat[nov] * 1.5 and tied[pd.Timestamp("2026-09-01")] <= flat[pd.Timestamp("2026-09-01")] * 1.3
+    jan = pd.Timestamp("2027-01-01")  # the extra revenue is paid with a delay: fully visible in cash from December
+    assert tied[jan] > flat[jan] * 1.5 and tied[pd.Timestamp("2026-09-01")] <= flat[pd.Timestamp("2026-09-01")] * 1.3
 
 
 def test_schedule_matches_layers_and_plan_moves_cash(env):
@@ -158,8 +185,8 @@ def test_template_roundtrip_and_validation(env):
                         pd.DataFrame([{"name": "Сайт", "mp": "Сайт/другое", "start": pd.Timestamp("2027-02-01"), "end": pd.NaT, "gmv": 1.5e6, "comment": "новое"}]),
                         pd.DataFrame([{"article": "ФОТ Маркетинг", "start": pd.Timestamp("2026-12-01"), "end": pd.NaT, "amount": 200_000.0, "comment": "найм"}]))
     sheets = F.to_template(view, plan, sorted(env["arts"]))
-    assert list(sheets) == ["Допущения МП", "Общие допущения", "Доп. выручка", "Корректировки расходов", "Как заполнять"]
-    back, errors = F.parse_template({k: v[0] for k, v in sheets.items()}, env["arts"])
+    assert list(sheets) == ["Прогноз по месяцам", "Допущения МП", "Задержка выплат", "Общие допущения", "Доп. выручка", "Корректировки расходов", "Как заполнять"]
+    back, errors = F.parse_template({k: v[0] for k, v in sheets.items()}, env["arts"], env["fm"], env["as_of"])
     assert errors == []
     assert back.mp_value("Ozon", "yoy_pct") == 55.0 and back.mp_value("Ozon", "buyout_pct") is None and back.mp_value("WB", "yoy_pct") is None
     assert back.params["purchases_pct"] == 110.0 and back.params["scale_variable"] is True and back.params["dividends"] == 700_000.0
@@ -198,3 +225,50 @@ def test_plan_sheets_roundtrip_through_repository(tmp_path):
     repo.save_plan_sheets(F.plan_to_sheets(plan))
     again = F.plan_from_sheets(ExcelLedgerRepository(path).get_plan_sheets())
     assert again.key() == plan.key() and "journal" in pd.ExcelFile(path).sheet_names
+
+
+def test_edited_month_cells_become_overrides_and_roundtrip(env):
+    view = F.build_forecast(env["fm"], env["as_of"], 0.9)
+    sheets = {k: v[0].copy() for k, v in F.to_template(view, F.empty_plan(), []).items()}
+    month = sheets["Прогноз по месяцам"]
+    assert (month["Сценарий"] == "Оптимистичный").all() and len(month) == 24
+    untouched, errors = F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])
+    assert errors == [] and untouched.monthly.empty  # downloading and re-uploading without edits changes nothing
+    i = month.index[(month["Маркетплейс"] == "WB") & (month["Месяц"] == "11.2026")][0]
+    month.loc[i, "Оборот (GMV), ₽"] = month.loc[i, "Оборот (GMV), ₽"] * 2
+    month.loc[i, "Выкуп, %"] = 90.0
+    plan, errors = F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])
+    nov = pd.Timestamp("2026-11-01")
+    assert errors == [] and len(plan.monthly) == 1 and pd.isna(plan.monthly.iloc[0]["mp_cost_pct"])
+    edited, base = F.build_forecast(env["fm"], env["as_of"], 0.9, plan), F.build_forecast(env["fm"], env["as_of"], 0.9)
+    assert edited.gmv.loc[nov, "WB"] == pytest.approx(base.gmv.loc[nov, "WB"] * 2, rel=1e-5)
+    assert edited.buyout.loc[nov, "WB"] == 0.9 and edited.mp_cost.loc[nov, "WB"] == base.mp_cost.loc[nov, "WB"]
+    assert edited.sales.loc[nov, "WB"] > base.sales.loc[nov, "WB"] * 1.5  # the edit reaches sales, payout and later cash
+    assert edited.receipts.loc[pd.Timestamp("2027-01-01"), "WB"] > base.receipts.loc[pd.Timestamp("2027-01-01"), "WB"]
+    oct_ = pd.Timestamp("2026-10-01")
+    assert edited.sales.loc[oct_, "WB"] == pytest.approx(base.sales.loc[oct_, "WB"])  # earlier months stay on the model
+    assert edited.receipts.loc[oct_, "WB"] == pytest.approx(base.receipts.loc[oct_, "WB"])
+    # the edit survives storage and a second download
+    again = F.plan_from_sheets(F.plan_to_sheets(plan))
+    assert again.key() == plan.key()
+    second = F.to_template(edited, plan, [])["Прогноз по месяцам"][0]
+    assert second.loc[i, "Выкуп, %"] == 90.0
+    month.loc[i, "Выкуп, %"] = 150.0
+    assert any("от 0 до 100" in e for e in F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])[1])
+
+
+def test_lag_sheet_roundtrip_and_validation(env):
+    view = F.build_forecast(env["fm"], env["as_of"], 0.7, None, env["j"])
+    sheets = {k: v[0].copy() for k, v in F.to_template(view, F.empty_plan(), []).items()}
+    lag = sheets["Задержка выплат"]
+    assert abs(sum(lag.loc[0, f"Авто, через {k} нед., %"] for k in range(F.LAG_WEEKS)) - 100) < 1  # shows the estimated profile
+    plan, errors = F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])
+    assert errors == [] and plan.lag.empty  # untouched -> estimated profile stays in use
+    lag.loc[0, "Через 1 нед., %"], lag.loc[0, "Через 3 нед., %"] = 50.0, 50.0
+    plan, errors = F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])
+    assert errors == [] and plan.lag_profile("WB") == (0.0, 0.5, 0.0, 0.5, 0.0, 0.0) and plan.lag_profile("Ozon") is None
+    assert F.plan_from_sheets(F.plan_to_sheets(plan)).lag_profile("WB") == plan.lag_profile("WB")
+    lag.loc[0, "Через 3 нед., %"] = 5.0
+    assert any("ожидается около 100" in e for e in F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])[1])
+    lag.loc[0, "Через 3 нед., %"] = -5.0
+    assert any("от 0 до 100" in e for e in F.parse_template(sheets, env["arts"], env["fm"], env["as_of"])[1])

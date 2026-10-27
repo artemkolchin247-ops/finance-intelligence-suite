@@ -27,7 +27,7 @@ ss = st.session_state
 plan = get_plan()
 override = ss.get("plan_override")
 assump = scenario()
-view = F.build_forecast(fin.fact_monthly, fin.as_of, assump.scenario_lambda, plan)
+view = F.build_forecast(fin.fact_monthly, fin.as_of, assump.scenario_lambda, plan, fin.journal)
 
 # ------------------------------------------------------------------ source, scenario, file
 kpi_row([
@@ -39,17 +39,17 @@ kpi_row([
     Kpi("Данные на дату", f"{fin.as_of:%d.%m.%Y}", "факт до этой даты"),
 ])
 with st.container(border=True):
-    st.markdown("**Все вводные меняются только в Excel-файле.** Скачайте шаблон (в нём уже подставлены авто-значения), заполните жёлтые ячейки "
-                "и загрузите обратно — прогноз, ДДС и платёжный календарь пересчитаются. В программе можно только выбрать сценарий.")
+    st.markdown("**Все вводные меняются только в Excel-файле.** Скачайте готовый прогноз (Excel уже заполнен расчётом выбранного сценария), измените жёлтые ячейки "
+                "по месяцам, маркетплейсам и статьям и загрузите обратно — прогноз, ДДС и платёжный календарь пересчитаются. В программе можно только выбрать сценарий.")
     scenario_select("fc")
     f1, f2, f3, f4 = st.columns([1.3, 1.6, 1.3, 1.1])
     articles = sorted(fin.articles["article"])
     template = to_excel_styled(F.to_template(view, plan, articles))
-    f1.download_button("Скачать шаблон плана", template, file_name="plan_template.xlsx", key="fc_tpl", width="stretch")
+    f1.download_button("Скачать прогноз (Excel)", template, file_name="forecast.xlsx", key="fc_tpl", width="stretch")
     upload = f2.file_uploader("Загрузить заполненный план", type=["xlsx"], key="fc_upload", label_visibility="collapsed")
     if upload is not None:
         try:
-            parsed, errors = F.parse_template(pd.read_excel(upload, sheet_name=None), set(articles))
+            parsed, errors = F.parse_template(pd.read_excel(upload, sheet_name=None), set(articles), fin.fact_monthly, fin.as_of)
         except Exception as exc:  # noqa: BLE001 - an unreadable file is reported to the user
             parsed, errors = None, [f"Не удалось прочитать файл «{upload.name}»: {exc}"]
         if errors:
@@ -91,14 +91,17 @@ rows = block("Оборот (GMV): заказы, тыс. ₽", view.gmv, [*F.STRE
 rows += block("Рост год к году, %", view.yoy, list(F.STREAMS), "pct", prefix="b")
 rows += block("Выкуп, % от заказов", view.buyout, list(F.STREAMS), "pct", prefix="c")
 rows += block("Расходы маркетплейса, % от продаж", view.mp_cost, list(F.STREAMS), "pct", prefix="d")
-rows += block("Деньги на р/с, % от GMV", view.cash_ratio, list(F.STREAMS), "pct", prefix="e")
+rows += block("Продажи (выкуплено), тыс. ₽", view.sales, [*F.STREAMS, "Доп. выручка"], "k0", total=True, prefix="e")
+rows += block("Выплата маркетплейса начислена, тыс. ₽", view.payout, [*F.STREAMS, "Доп. выручка"], "k0", total=True, prefix="g")
+rows += block("Деньги на р/с в месяце, % от GMV", view.cash_ratio, list(F.STREAMS), "pct", prefix="h")
 rows += block("Поступления на р/с, тыс. ₽", view.receipts, [*F.STREAMS, "Доп. выручка"], "k0", total=True, prefix="f")
 st.iframe(render_statement(cols, rows, height=640, first_col="Показатель"), height=640)
 st.caption("Факт — по месячным данным маркетплейсов (те же, что в ОПиУ); прогноз — сценарий выше. Поступления — оценка денег на р/с по формуле "
-           "GMV × выкуп × (1 − расходы маркетплейса).")
+           "заказы → выкупленные продажи (до 21 дня) → выплата маркетплейса → приход на р/с с задержкой в несколько недель, поэтому деньги месяца "
+           "не равны выплате, начисленной в нём.")
 
 scen = pd.DataFrame({"Сценарий": list(F.SCENARIOS), "λ": [F.SCENARIOS[n] for n in F.SCENARIOS]})
-scen["Поступления 12 мес., тыс. ₽"] = [F.build_forecast(fin.fact_monthly, fin.as_of, lam, plan).receipts.loc[view.months, "Итого"].sum() / 1000
+scen["Поступления 12 мес., тыс. ₽"] = [F.build_forecast(fin.fact_monthly, fin.as_of, lam, plan, fin.journal).receipts.loc[view.months, "Итого"].sum() / 1000
                                        for lam in scen["λ"]]
 st.dataframe(scen, hide_index=True, width="stretch", column_config={"Поступления 12 мес., тыс. ₽": st.column_config.NumberColumn(format="%.0f")})
 
@@ -114,6 +117,16 @@ a1.dataframe(mp_table, hide_index=True, width="stretch", column_config={c: st.co
 params = pd.DataFrame({"Параметр": list(F.PARAM_KEYS.values()),
                        "Значение": [("Да" if plan.params[k] else "Нет") if (k == "scale_variable" and k in plan.params) else
                                     (f"{plan.params[k]:,.0f}".replace(",", " ") if k in plan.params else "по умолчанию") for k in F.PARAM_KEYS]})
+lag_rows = []
+for mp in F.STREAMS:
+    row = {"Маркетплейс": mp, "Источник": "ваши данные" if plan.lag_profile(mp) else "оценка по журналу"}
+    row.update({f"{k} нед.": view.lag_used[mp][k] * 100 for k in range(F.LAG_WEEKS)})
+    row["Средняя задержка, нед."] = sum(k * p for k, p in enumerate(view.lag_used[mp]))
+    lag_rows.append(row)
+a2.markdown("**Задержка выплат:** доля выплаты за продажи недели, пришедшая на р/с через N недель, %")
+a2.dataframe(pd.DataFrame(lag_rows), hide_index=True, width="stretch",
+             column_config={c: st.column_config.NumberColumn(format="%.0f") for c in [f"{k} нед." for k in range(F.LAG_WEEKS)]}
+             | {"Средняя задержка, нед.": st.column_config.NumberColumn(format="%.1f")})
 a2.markdown("**Общие допущения**")
 a2.dataframe(params, hide_index=True, width="stretch")
 b1, b2 = st.columns(2)
@@ -174,7 +187,11 @@ with st.expander("Как считается прогноз"):
         "- **Оборот (GMV)** месяца = оборот заказов того же месяца год назад × рост год к году. Сезонность поэтому учтена автоматически.\n"
         "- **Рост год к году** = среднее логарифмического роста за последние 4 закрытых месяца (веса 1-2-3-4, ограничение ×0,8…×3,0) и дальше затухает: "
         "через год сохраняется доля λ от текущего роста (пессимистичный 0,45 · базовый 0,70 · оптимистичный 0,90).\n"
-        "- **Деньги на р/с** = GMV × выкуп × (1 − расходы маркетплейса); выкуп и расходы — по последним 3 месяцам, можно задать свои в шаблоне.\n"
+        "- **Заказы → продажи.** Заказ выкупается через 1–21 день (в среднем около 9), поэтому продажи месяца = выкуп % × заказы последних трёх недель, а не только этого месяца. "
+        "Выкуп и расходы маркетплейса — по последним 3 месяцам, можно задать свои.\n"
+        "- **Продажи → выплата → р/с.** Выплата = продажи × (1 − расходы МП). Отчёт за неделю формируется в понедельник, вывод доступен ещё через неделю, "
+        "деньги приходят ещё через 0–2 недели: долю выплаты недели, приходящую через 0…5 недель, мы оцениваем по фактическим поступлениям журнала "
+        "(с поправкой к стандартному профилю) или берём из вашего файла. Платежи ложатся на пн/вт (WB) и среду (Ozon); ближайшие недели определяются уже сделанными продажами.\n"
         "- **Расходы** по каждой статье = среднее за 3 последних закрытых месяца; НДС следует за поступлениями, взносы — за ФОТ; "
         "корректировки из шаблона добавляются к среднему. УСН, кредит и проценты считаются по графику.\n"
         "- **Доп. выручка** (новое направление) проходит ту же цепочку выкуп/расходы и добавляется к поступлениям выбранного маркетплейса.")

@@ -79,7 +79,7 @@ ENTITY_OOO, ENTITY_IP = "ООО Вуки", "ИП Петрова"
 
 # (account, group, legal entity, opening balance at 2024-01-01)
 ACCOUNTS: list[tuple[str, str, str, float]] = [
-    ("ООО Вуки Точка ₽", "Расчётные счета", ENTITY_OOO, 2_400_000),
+    ("ООО Вуки Точка ₽", "Расчётные счета", ENTITY_OOO, 9_000_000),
     ("ООО Вуки Совкомбанк", "Расчётные счета", ENTITY_OOO, 350_000),
     ("ООО Вуки ВТБ", "Расчётные счета", ENTITY_OOO, 120_000),
     ("ИП Петрова Точка ₽", "Расчётные счета", ENTITY_IP, 800_000),

@@ -195,27 +195,19 @@ def build_schedule(journal: pd.DataFrame, balance_1c: pd.DataFrame, payment_plan
             priority=r.Приоритет or None)
         known_add(r[2], d, r.Сумма)
 
-    # ---- receipts by stream (marketplaces and additional revenue): weekly payouts of the forecast monthly amount
+    # ---- receipts: payouts accrued from past and forecast sales reach the account after the marketplace delay (dated by core.forecast)
     payout_hist = forecast.payout_series(fact_monthly).sum(axis=1)
     rec_recent = max(float(payout_hist.reindex(recent).sum()), 1.0)
-    rec_final, rec_extra = layers.receipts, layers.extra_receipts
+    rec_final = layers.receipts
     receipts_fc = {m: float(rec_final.loc[m].sum()) for m in months}
-    weekdays = {"WB": (0, 1), "Ozon": (2,)}
-    for stream, art in forecast.STREAM_ARTICLE.items():
-        for m in months:
-            amount_m = float(rec_final.loc[m, stream])
-            planned = bool(rec_extra.loc[m, stream] > 0)
-            if m == months[0]:  # the current month: what is still to come
-                got = journal[(journal["article"] == art) & journal["dds_date"].between(m, as_of)]["income"].sum()
-                amount_m = max(amount_m - got, 0.0)
-            rng_days = pd.date_range(max(m, first), m + pd.offsets.MonthEnd(0))
-            days = [d for d in rng_days if d.weekday() in weekdays[stream]] if stream in weekdays else [d for d in rng_days if d.day in (10, 25)]
-            if not days or amount_m <= 0:
-                continue
-            for entity, share in entity_split(art):
-                for d in days:
-                    add(d, art, amount_m / len(days) * share, entity, "План" if planned else "Прогноз",
-                        comment="Ожидаемая выплата маркетплейса" if stream in weekdays else "Ожидаемое поступление", direction="in")
+    for r in layers.payments.itertuples(index=False):
+        art = forecast.STREAM_ARTICLE[r.stream]
+        total = r.base + r.extra
+        if total <= 0:
+            continue
+        for entity, share in entity_split(art):
+            add(r.date, art, total * share, entity, "План" if r.extra > 0 else "Прогноз",
+                comment="Ожидаемая выплата маркетплейса" if r.stream in forecast.STREAMS else "Ожидаемое поступление", direction="in")
 
     # ---- expenses: 3-month averages plus the plan's corrections
     def spread(article: str, month: pd.Timestamp, amount: float, source="Прогноз", note=""):

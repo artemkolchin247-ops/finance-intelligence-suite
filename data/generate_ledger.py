@@ -104,7 +104,7 @@ class Ledger:
     """Posts operations and keeps running account balances; tops accounts up from donors when funds are short."""
 
     DONORS = {
-        MAIN: [OOO2, D_DEV, OOO3, D_TAX],
+        MAIN: [OOO2, D_DEV, OOO3, D_TAX, F_DEV, F_NDS, F_TAX],
         IP_T: [IP_S, IP_V, IP_O, D_IP, MAIN],
         IP_S: [IP_T, D_IP, MAIN],
         F_TAX: [MAIN, D_TAX, OOO2, OOO3, IP_T], F_NDS: [MAIN, D_DEV, OOO2, OOO3, IP_T, F_DEV],
@@ -188,6 +188,9 @@ MODEL_W = np.array([0.20, 0.06, 0.15, 0.17, 0.11, 0.09, 0.05, 0.04, 0.04, 0.03, 
 SIZES = ["XS", "S", "M", "L", "XL", "S/M", "L/XL"]
 
 
+TRUE_LAG = {"WB": (0.0, 0.04, 0.38, 0.36, 0.17, 0.05), "Ozon": (0.0, 0.12, 0.46, 0.30, 0.12, 0.0)}  # weeks from accrual to cash
+
+
 def build_journal(fm: pd.DataFrame, creators: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     led = Ledger(rng)
     months = pd.date_range(START, AS_OF, freq="MS")
@@ -203,6 +206,30 @@ def build_journal(fm: pd.DataFrame, creators: pd.DataFrame, rng: np.random.Gener
         comis_after = r.comis_spp - (r.sales_rub - r.sales_spp_rub)
         val = r.sales_spp_rub - comis_after - r.logist - r.storage - r.accept - r.other - r.reclama
         return float(val) * (r.days / month.days_in_month if r.days < month.days_in_month else 1.0)
+
+    def weekly_cash(mp: str) -> dict[pd.Timestamp, float]:
+        """Cash received per week: the payout accrued in a week arrives TRUE_LAG[mp][k] weeks later."""
+        daily: dict[pd.Timestamp, float] = {}
+        for month in months:
+            r = by.get((month, mp))
+            if r is None:
+                continue
+            ndays = int(min(r.days, month.days_in_month))
+            rate = payout(month, mp) / ndays
+            for d in pd.date_range(month, periods=ndays):
+                daily[d] = rate
+        first = min(daily)
+        for d in pd.date_range(first - pd.Timedelta(weeks=7), first - pd.Timedelta(days=1)):
+            daily[d] = daily[first]  # accrual before the journal starts, at the first month's rate
+        ser = pd.Series(daily)
+        weekly = ser.groupby((ser.index - pd.to_timedelta(ser.index.day_of_week, unit="D")).normalize()).sum()
+        cash: dict[pd.Timestamp, float] = {}
+        for wk, amount in weekly.items():
+            for k, share in enumerate(TRUE_LAG[mp]):
+                cash[wk + pd.Timedelta(weeks=k)] = cash.get(wk + pd.Timedelta(weeks=k), 0.0) + amount * share
+        return cash
+
+    cash_weeks = {mp: weekly_cash(mp) for mp in ("WB", "Ozon")}
 
     events: list[tuple[pd.Timestamp, int, callable]] = []
 
@@ -221,25 +248,24 @@ def build_journal(fm: pd.DataFrame, creators: pd.DataFrame, rng: np.random.Gener
         indirect = 0.0
         f = 0.4 + 0.6 * k  # fixed overheads grow with the company
 
-        # --- marketplace payouts: 82% in the month, the rest settles in the following month
+        # --- marketplace payouts: a week's payout reaches the account 1-5 weeks later (report, withdrawal, transfer)
         for mp, article, weekday in (("WB", "Продажи Wildberries", (0, 1)), ("Ozon", "Продажи OZON", (2,))):
-            cash = 0.82 * payout(month, mp) + 0.18 * payout(prev, mp)
-            if cash <= 0:
-                continue
-            days = [d for d in pd.date_range(month, mend) if d.weekday() in weekday]
-            weights = rng.dirichlet(np.full(len(days), 6.0))
-            for d, w in zip(days, weights):
-                for entity, share in ((ENTITY_OOO, p_ooo), (ENTITY_IP, 1 - p_ooo)):
-                    amt = cash * w * share * rng.uniform(0.96, 1.04)
-                    if mp == "WB":
-                        acc = MAIN if entity == ENTITY_OOO else IP_S
-                    else:
-                        acc = MAIN if entity == ENTITY_OOO else IP_T
-                    text = "Выручка ООО" if entity == ENTITY_OOO else "Выручка ИП"
-                    if mp == "Ozon":
-                        text = f"Оплата за товары по договору, реестр №{int(rng.integers(10**8, 10**9))}"
-                    add(d, 0, lambda d=d, amt=amt, acc=acc, art=article, text=text, mp=mp, e=entity:
-                        led.receive(d, d, art, amt, acc, text, mp="WB" if mp == "WB" else "OZON", cabinet=e))
+            for wk, cash in cash_weeks[mp].items():
+                for wd in weekday:
+                    d = wk + pd.Timedelta(days=wd)
+                    if not (month <= d <= mend) or cash <= 0:
+                        continue
+                    for entity, share in ((ENTITY_OOO, p_ooo), (ENTITY_IP, 1 - p_ooo)):
+                        amt = cash / len(weekday) * share * rng.uniform(0.90, 1.10)
+                        if mp == "WB":
+                            acc = MAIN if entity == ENTITY_OOO else IP_S
+                        else:
+                            acc = MAIN if entity == ENTITY_OOO else IP_T
+                        text = "Выручка ООО" if entity == ENTITY_OOO else "Выручка ИП"
+                        if mp == "Ozon":
+                            text = f"Оплата за товары по договору, реестр №{int(rng.integers(10**8, 10**9))}"
+                        add(d, 0, lambda d=d, amt=amt, acc=acc, art=article, text=text, mp=mp, e=entity:
+                            led.receive(d, d, art, amt, acc, text, mp="WB" if mp == "WB" else "OZON", cabinet=e))
 
         # --- purchases of goods: next month's cost of sales, 2-3 invoices
         nxt = month + pd.offsets.MonthBegin(1)
@@ -461,11 +487,14 @@ def _interest(led: Ledger, d: pd.Timestamp) -> None:
 
 def _dividends(led: Ledger, d: pd.Timestamp, rng: np.random.Generator) -> None:
     """Free cash above the target level is distributed to the owners (1-3 payments)."""
-    target = 4_500_000 + 700_000 * max((d - START).days / 365.0 - 1, 0)
+    target = 9_000_000 + 700_000 * max((d - START).days / 365.0 - 1, 0)
     free = led.total_cash() - target
     if free < 600_000 or d < pd.Timestamp("2024-09-01"):
         return
-    total = min(free * 0.6, 5_000_000)
+    liquid = max(led.bal[MAIN] - 1_200_000, 0.0) + led.bal[D_DEV] + led.bal[OOO2] + led.bal[OOO3]  # funds cannot be paid out as dividends
+    total = min(free * 0.6, 5_000_000, liquid)
+    if total < 600_000:
+        return
     parts = rng.dirichlet(np.full(int(rng.integers(1, 4)), 5.0))
     for i, w in enumerate(parts):
         dd = business_day(d + pd.Timedelta(days=2 * i))
