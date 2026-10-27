@@ -23,17 +23,29 @@ class Dataset:
     dim: pd.DataFrame
 
 
+# Bump when classes of cached objects change: a running server keeps cache_resource objects across code updates.
+CACHE_VERSION = 4
+
+
 @st.cache_resource
-def get_repo() -> ExcelRepository:
+def _repo(version: int) -> ExcelRepository:
     return ExcelRepository()
 
 
+def get_repo() -> ExcelRepository:
+    return _repo(CACHE_VERSION)
+
+
 @st.cache_resource(show_spinner="Загрузка данных…")
-def load_dataset() -> Dataset:
+def _dataset(version: int) -> Dataset:
     repo = get_repo()
     dim = repo.get_dim_sku()
     fact = rnp_calc.prepare_fact(repo.get_fact_daily(), repo.get_fact_ext_daily(), dim)
     return Dataset(fact, repo.get_stocks_ms(), repo.get_creators_weekly(), dim)
+
+
+def load_dataset() -> Dataset:
+    return _dataset(CACHE_VERSION)
 
 
 def load_hypotheses() -> pd.DataFrame:
@@ -60,17 +72,28 @@ class FinanceData:
 
 
 @st.cache_resource
-def get_ledger_repo() -> ExcelLedgerRepository:
+def _ledger_repo(version: int) -> ExcelLedgerRepository:
     return ExcelLedgerRepository()
 
 
+def get_ledger_repo() -> ExcelLedgerRepository:
+    return _ledger_repo(CACHE_VERSION)
+
+
 @st.cache_resource(show_spinner="Загрузка финансовых данных…")
-def load_finance() -> FinanceData:
+def _finance(version: int) -> FinanceData:
     repo = get_ledger_repo()
     as_of = repo.get_as_of()
     articles = repo.get_articles()
     return FinanceData(prepare_journal(repo.get_journal(), articles, as_of), articles, repo.get_accounts(),
                        repo.get_fact_monthly(), repo.get_balance_1c(), as_of)
+
+
+def load_finance() -> FinanceData:
+    return _finance(CACHE_VERSION)
+
+
+load_finance.clear = _finance.clear  # the journal page refreshes the cache after saving
 
 
 def get_finance() -> FinanceData:
